@@ -1,0 +1,10 @@
+category: ai_box
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  power_w: {type: number, doc: "Typical power while detecting"}
+  detector_fps: {type: number, doc: "Measured person-detector frame rate (TensorRT)"}
+  ram_gb: {type: number, doc: "Memory"}
+  cpus: {type: number, doc: "CPU cores"}

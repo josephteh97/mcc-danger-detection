@@ -1,0 +1,9 @@
+category: mast
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  height_m: {type: number, doc: "Camera height above ground"}
+  standoff_m: {type: number, doc: "Typical ground distance from the mast to the pit centre"}
+  sway_deg_per_ms2: {type: number, doc: "Mast sway in degrees per (wind speed in m/s) squared"}

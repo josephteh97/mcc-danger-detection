@@ -1,0 +1,7 @@
+name: Hikvision DS-QAZ1307G1-T/E IP horn speaker
+source: https://www.hikvision.com/en/products/Audio-Products/
+verified: false            # sound level from the listing
+price_sgd: 420
+power_w: 3
+spl_1m_db: 121
+interface: ip

@@ -1,0 +1,13 @@
+category: camera
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  power_w: {type: number, doc: "Average power with IR on at night"}
+  resolution_px: {type: list, doc: "[width, height] in pixels"}
+  hfov_deg: {type: number, doc: "Horizontal field of view at the lens setting used"}
+  form: {type: str, doc: "bullet, dome or ptz (a dome bubble collects more window drops)"}
+  sun_hood: {type: bool, doc: "Hood over the window (collects about 40% of the drops)"}
+  true_wdr_db: {type: number, doc: "True (multi-exposure) WDR in dB; 0 if only digital WDR"}
+  ir_range_m: {type: number, doc: "Infrared illuminator range"}

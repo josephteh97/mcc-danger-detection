@@ -1,0 +1,15 @@
+# Twin values. On site only the URLs, device paths and calibration change.
+pole_id: "07"
+site:
+  pit: [[-1.2, -0.8], [1.2, -0.8], [1.2, 0.8], [-1.2, 0.8]]   # metres
+camera:
+  url: rtsp://192.168.10.20:8554/stream1
+  homography: /data/calib/homography.npy                       # written by the calibration tool
+  lost_after_s: 3.0
+alarm: { alarm_buffer_m: 1.5, warn_buffer_m: 3.0, dwell_s: 1.0, escalate_s: 3.0, clear_s: 2.0 }
+arm: { xy: [-6.0, 3.6], heading_deg: -30, pivot_h_m: 1.1 }
+devices: { arm: /dev/ttyARM, relay: /dev/ttyRELAY, audio_sink: horn, relay_protocol: line }
+detector: { mode: oracle, oracle_udp: "0.0.0.0:9100", oracle_delay_ms: 120, oracle_miss_rate: 0.02 }
+uplink: { broker: 172.30.4.10, topic: pole/07/event, status_topic: pole/07/status, queue: /data/queue.db }
+floodlight_hours: [19, 7]
+status_file: /data/status.json

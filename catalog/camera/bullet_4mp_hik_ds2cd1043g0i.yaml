@@ -1,0 +1,11 @@
+name: Hikvision DS-2CD1043G0-I 4 MP bullet (4 mm)
+source: https://www.hikvision.com/en/products/IP-Products/Network-Cameras/Value-Series/ds-2cd1043g0-i/
+verified: false            # IR range from the listing; the rest are typical values
+price_sgd: 200
+power_w: 4
+resolution_px: [2560, 1440]
+hfov_deg: 86
+form: bullet
+sun_hood: true
+true_wdr_db: 0              # digital WDR only
+ir_range_m: 30

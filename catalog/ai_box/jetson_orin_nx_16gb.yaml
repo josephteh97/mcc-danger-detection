@@ -1,0 +1,8 @@
+name: NVIDIA Jetson Orin NX 16 GB
+source: typical value
+verified: false
+price_sgd: 1100
+power_w: 25
+detector_fps: 60
+ram_gb: 16
+cpus: 8

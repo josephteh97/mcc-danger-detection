@@ -1,0 +1,8 @@
+name: NVIDIA Jetson Orin Nano Super 8 GB
+source: typical value
+verified: false            # measure detector_fps on the real box (V-test on hardware)
+price_sgd: 400
+power_w: 15
+detector_fps: 30
+ram_gb: 8
+cpus: 6

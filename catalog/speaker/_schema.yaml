@@ -1,0 +1,9 @@
+category: speaker
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  power_w: {type: number, doc: "Idle power"}
+  spl_1m_db: {type: number, doc: "Maximum sound level at 1 m"}
+  interface: {type: str, doc: "analog (amplifier + USB audio) or ip"}

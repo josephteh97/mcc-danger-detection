@@ -1,0 +1,8 @@
+name: 30 W 24 V LED floodlight, 120 degree beam
+source: typical value
+verified: false
+price_sgd: 80
+power_w: 30
+lumens: 2200
+beam_deg: 120
+supply_v: 24

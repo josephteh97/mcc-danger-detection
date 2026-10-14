@@ -1,0 +1,10 @@
+category: floodlight
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  power_w: {type: number, doc: "Lamp power"}
+  lumens: {type: number, doc: "Luminous flux"}
+  beam_deg: {type: number, doc: "Full beam angle"}
+  supply_v: {type: number, doc: "24 for the DC bus; 230 needs an inverter"}

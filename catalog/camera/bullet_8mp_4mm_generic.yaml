@@ -1,0 +1,11 @@
+name: Generic 8 MP bullet, 4 mm lens
+source: typical value
+verified: false
+price_sgd: 350
+power_w: 7
+resolution_px: [3840, 2160]
+hfov_deg: 92
+form: bullet
+sun_hood: true
+true_wdr_db: 120
+ir_range_m: 40

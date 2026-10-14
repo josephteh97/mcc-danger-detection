@@ -1,0 +1,7 @@
+name: Ballasted 3 m tripod
+source: typical value
+verified: false
+price_sgd: 300
+height_m: 3.0
+standoff_m: 5.0
+sway_deg_per_ms2: 0.0006

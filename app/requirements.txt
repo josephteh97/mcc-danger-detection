@@ -1,0 +1,5 @@
+# Runtime dependencies of the Orin app (installed in the orin image, and on the real Orin).
+numpy>=1.21
+opencv-python-headless>=4.8
+pyyaml>=5.4
+paho-mqtt>=2.0

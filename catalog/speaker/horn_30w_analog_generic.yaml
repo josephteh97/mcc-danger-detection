@@ -1,0 +1,7 @@
+name: 30 W analog horn speaker with amplifier
+source: typical value
+verified: false
+price_sgd: 120
+power_w: 0.5
+spl_1m_db: 113
+interface: analog

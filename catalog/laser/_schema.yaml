@@ -1,0 +1,8 @@
+category: laser
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  power_mw: {type: number, doc: "Optical output power, continuous wave"}
+  wavelength_nm: {type: number, doc: "Wavelength"}

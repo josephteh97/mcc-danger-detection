@@ -1,0 +1,8 @@
+name: Vive 50 W 230 V LED floodlight with sensor
+source: typical value       # lumens from the shop listing; check before relying on it
+verified: false
+price_sgd: 60
+power_w: 50
+lumens: 4500
+beam_deg: 120
+supply_v: 230

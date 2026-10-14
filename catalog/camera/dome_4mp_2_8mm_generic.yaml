@@ -1,0 +1,11 @@
+name: Generic 4 MP dome, 2.8 mm lens
+source: typical value
+verified: false
+price_sgd: 190
+power_w: 5
+resolution_px: [2560, 1440]
+hfov_deg: 105
+form: dome
+sun_hood: false
+true_wdr_db: 120
+ir_range_m: 30

@@ -1,59 +1,59 @@
 ## 1. Project setup (Step 2 starts here)
 
-- [ ] 1.1 Create the layout from the guide at the repo root: `world/`, `devices/`, `app/`, `orin/`, `dashboard/`, `catalog/`, `tools/`, `tests/`, `cloud/`, `logs/` (git-ignored), `reports/` (git-ignored)
-- [ ] 1.2 Add `requirements-dev.txt` (numpy, opencv-python-headless, pyyaml, paho-mqtt, pytest, fastapi, uvicorn, docker, httpx) and `app/requirements.txt` (the Orin app's runtime dependencies only)
-- [ ] 1.3 Write `site.yaml`: pit, zone settings, camera pose (6.5 m up, about 8 m from the pit, 90° HFOV), arm pose, site boundary and the fitted `products:`
-- [ ] 1.4 Verify: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt` succeeds
+- [x] 1.1 Create the layout from the guide at the repo root: `world/`, `devices/`, `app/`, `orin/`, `dashboard/`, `catalog/`, `tools/`, `tests/`, `cloud/`, `logs/` (git-ignored), `reports/` (git-ignored)
+- [x] 1.2 Add `requirements-dev.txt` (numpy, opencv-python-headless, pyyaml, paho-mqtt, pytest, fastapi, uvicorn, docker, httpx) and `app/requirements.txt` (the Orin app's runtime dependencies only)
+- [x] 1.3 Write `site.yaml`: pit, zone settings, camera pose (6.5 m up, about 8 m from the pit, 90° HFOV), arm pose, site boundary and the fitted `products:`
+- [x] 1.4 Verify: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt` succeeds
 
 ## 2. Alarm app core (`alarm-app`)
 
-- [ ] 2.1 `app/alarm.py`: `ground_from_image`, `edge_distance`, `Config`, `AlarmFSM` with the levels, events, timings and 2 s track persistence from design D3
-- [ ] 2.2 `app/links.py`: `aim_angles`, `SerialLine`, `RelayAdapter` (line protocol now, hex-frame adapter stub for site), `ArmLink` (AIM, LASER, HB, PARK; parses POS; "arm offline" detection), and `Uplink` (SQLite queue, QoS 1, in order, delete after PUBACK)
-- [ ] 2.3 `app/detect.py`: oracle mode (UDP truth, delay, jitter, miss rate, IDs removed) and the YOLO-mode interface (ONNX loader, not part of Phase 1 acceptance)
-- [ ] 2.4 `app/track.py`: IoU tracker that keeps tracks through short gaps
-- [ ] 2.5 `app/identify.py`: stub returning "unknown"
-- [ ] 2.6 `app/health.py`: capture reader thread, 3 s frame-age watchdog, "camera offline" alert queued to the uplink, reopen with backoff
+- [x] 2.1 `app/alarm.py`: `ground_from_image`, `edge_distance`, `Config`, `AlarmFSM` with the levels, events, timings and 2 s track persistence from design D3
+- [x] 2.2 `app/links.py`: `aim_angles`, `SerialLine`, `RelayAdapter` (line protocol now, hex-frame adapter stub for site), `ArmLink` (AIM, LASER, HB, PARK; parses POS; "arm offline" detection), and `Uplink` (SQLite queue, QoS 1, in order, delete after PUBACK)
+- [x] 2.3 `app/detect.py`: oracle mode (UDP truth, delay, jitter, miss rate, IDs removed) and the YOLO-mode interface (ONNX loader, not part of Phase 1 acceptance)
+- [x] 2.4 `app/track.py`: IoU tracker that keeps tracks through short gaps
+- [x] 2.5 `app/identify.py`: stub returning "unknown"
+- [x] 2.6 `app/health.py`: capture reader thread, 3 s frame-age watchdog, "camera offline" alert queued to the uplink, reopen with backoff
 - [ ] 2.7 `app/main.py`: the guide's loop: capture, detect, track, alarm, act (horn tones on `horn`, relays per design D4, floodlight schedule), aim, uplink flush
-- [ ] 2.8 `app/config.yaml` with the guide's twin values
-- [ ] 2.9 Verify: `python3 tests/smoke.py` shows V01–V04, U01–U03 PASS
+- [x] 2.8 `app/config.yaml` with the guide's twin values
+- [x] 2.9 Verify: `python3 tests/smoke.py` shows V01–V04, U01–U03 PASS
 
 ## 3. Device emulators (`device-emulators`)
 
-- [ ] 3.1 `devices/arm_emulator.py`: pty via `--link`, AIM, LASER, HB and PARK in, POS out every 50 ms, 180°/s slew, ≥1° tilt interlock on the actual angle, 2 s watchdog with park, JSONL state to `--state`
-- [ ] 3.2 `devices/relay_emulator.py`: `R <ch> <0|1>`, replies `OK` or `ERR`, channels 1 to 4, JSONL state to `--state`
-- [ ] 3.3 `devices/power_model.py`: hourly model, defaults and start condition from design D13, product overrides, lowest-charge report
-- [ ] 3.4 `devices/horn_monitor.py`: the guide's parec peak detector as a module
-- [ ] 3.5 Verify: `python3 tests/smoke_links.py` shows V06–V09, U04–U06 PASS; `python3 tests/smoke.py` shows V10 PASS and V11 FAIL (known)
+- [x] 3.1 `devices/arm_emulator.py`: pty via `--link`, AIM, LASER, HB and PARK in, POS out every 50 ms, 180°/s slew, ≥1° tilt interlock on the actual angle, 2 s watchdog with park, JSONL state to `--state`
+- [x] 3.2 `devices/relay_emulator.py`: `R <ch> <0|1>`, replies `OK` or `ERR`, channels 1 to 4, JSONL state to `--state`
+- [x] 3.3 `devices/power_model.py`: hourly model, defaults and start condition from design D13, product overrides, lowest-charge report
+- [x] 3.4 `devices/horn_monitor.py`: the guide's parec peak detector as a module
+- [x] 3.5 Verify: `python3 tests/smoke_links.py` shows V06–V09, U04–U06 PASS; `python3 tests/smoke.py` shows V10 PASS and V11 FAIL (known)
 
 ## 4. World simulator and weather (`world-simulator`, `weather-presets`)
 
-- [ ] 4.1 `world/world.py`: site from `site.yaml`, pinhole camera, renderer, workers (scripted, passers-by, scenarios, controlled), site boundary, ground truth to UDP, laser dot from the arm state, frames to stdout, `--fps`, `--truth`, `--weather`, `--npcs`, `--control`
-- [ ] 4.2 `image_to_ground_homography()` and a `calibrate` entry point that writes `homography.npy` without overwriting an existing file
-- [ ] 4.3 `world/weather.py`: the 16 presets with visibility, sun factor, wind and storm events in one table; Koschmieder fog, rain streaks and drops, fogged window, night with and without floodlight, lightning, glare with WDR, mud and sway
-- [ ] 4.4 `world/controls.py`: UDP control server (keys, add and switch worker, reset, weather, scenario), 0.5 s key timeout, `send_keys`
-- [ ] 4.5 Contrast metric and foot-error measurement helpers used by the checks
-- [ ] 4.6 Verify: `python3 tests/smoke_weather.py` shows V19–V22, U07, U08 PASS; `python3 tests/smoke.py` shows V05, U01 PASS
+- [x] 4.1 `world/world.py`: site from `site.yaml`, pinhole camera, renderer, workers (scripted, passers-by, scenarios, controlled), site boundary, ground truth to UDP, laser dot from the arm state, frames to stdout, `--fps`, `--truth`, `--weather`, `--npcs`, `--control`
+- [x] 4.2 `image_to_ground_homography()` and a `calibrate` entry point that writes `homography.npy` without overwriting an existing file
+- [x] 4.3 `world/weather.py`: the 16 presets with visibility, sun factor, wind and storm events in one table; Koschmieder fog, rain streaks and drops, fogged window, night with and without floodlight, lightning, glare with WDR, mud and sway
+- [x] 4.4 `world/controls.py`: UDP control server (keys, add and switch worker, reset, weather, scenario), 0.5 s key timeout, `send_keys`
+- [x] 4.5 Contrast metric and foot-error measurement helpers used by the checks
+- [x] 4.6 Verify: `python3 tests/smoke_weather.py` shows V19–V22, U07, U08 PASS; `python3 tests/smoke.py` shows V05, U01 PASS
 
 ## 5. Product catalogue (`product-catalogue`)
 
-- [ ] 5.1 `catalog/<category>/_schema.yaml` for all 8 categories, plus the 20 product files named in the guide (source, verified, price, spec fields)
-- [ ] 5.2 `catalog/loader.py`: schema validation that names the missing field, `site.yaml` fitting, refusal of non-Class-2 lasers
-- [ ] 5.3 Spec effects: pixels per metre and DORI, ring coverage, window drops with and without a hood, WDR darkening, floodlight lux and inverter energy, speaker margin, laser brightness and class, daily energy, cost
-- [ ] 5.4 `tools/compare.py`: comparison table and picture grid (rows weather, columns product)
-- [ ] 5.5 Verify: `python3 tests/smoke_catalog.py` shows V23–V28, U09 PASS; `python3 -m tools.compare camera bullet_8mp_4mm_generic dome_4mp_2_8mm_generic --weather clear,tropical_downpour` prints the table and writes the grid
+- [x] 5.1 `catalog/<category>/_schema.yaml` for all 8 categories, plus the 20 product files named in the guide (source, verified, price, spec fields)
+- [x] 5.2 `catalog/loader.py`: schema validation that names the missing field, `site.yaml` fitting, refusal of non-Class-2 lasers
+- [x] 5.3 Spec effects: pixels per metre and DORI, ring coverage, window drops with and without a hood, WDR darkening, floodlight lux and inverter energy, speaker margin, laser brightness and class, daily energy, cost
+- [x] 5.4 `tools/compare.py`: comparison table and picture grid (rows weather, columns product)
+- [x] 5.5 Verify: `python3 tests/smoke_catalog.py` shows V23–V28, U09 PASS; `python3 -m tools.compare camera bullet_8mp_4mm_generic dome_4mp_2_8mm_generic --weather clear,tropical_downpour` prints the table and writes the grid
 
 ## 6. Human trial mode (`human-trial-mode`)
 
-- [ ] 6.1 `tools/trial.py`: key map, 1.4 and 3.0 m/s, multiple workers, weather cycling, rings and pause, top bar, plan view, pygame with OpenCV fallback, headless mode for tests
-- [ ] 6.2 Scorecard to `logs/trial-<time>.json` (stay, warning and alarm after entry, reset after leaving, dot-to-feet distance)
-- [ ] 6.3 `--send <host>:9200` keypad sender at about 10 Hz
-- [ ] 6.4 `tools/evaluate.py`: score a recorded run against ground truth
-- [ ] 6.5 Verify: `python3 tests/smoke_trial.py` shows V29–V34, U10 PASS
+- [x] 6.1 `tools/trial.py`: key map, 1.4 and 3.0 m/s, multiple workers, weather cycling, rings and pause, top bar, plan view, pygame with OpenCV fallback, headless mode for tests
+- [x] 6.2 Scorecard to `logs/trial-<time>.json` (stay, warning and alarm after entry, reset after leaving, dot-to-feet distance)
+- [x] 6.3 `--send <host>:9200` keypad sender at about 10 Hz
+- [x] 6.4 `tools/evaluate.py`: score a recorded run against ground truth
+- [x] 6.5 Verify: `python3 tests/smoke_trial.py` shows V29–V34, U10 PASS
 
 ## 7. Quick-check harness (`validation-suite`)
 
-- [ ] 7.1 `tests/_check.py`: shared reporter (ID, PASS or FAIL, measured value, criterion); expected-outcome table (V11 is a known fail); exit-code rules
-- [ ] 7.2 Verify: `python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py` runs to the end with **36 PASS, 1 FAIL (V11, known)**
+- [x] 7.1 `tests/_check.py`: shared reporter (ID, PASS or FAIL, measured value, criterion); expected-outcome table (V11 is a known fail); exit-code rules
+- [x] 7.2 Verify: `python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py` runs to the end with **36 PASS, 1 FAIL (V11, known)**
 
 ## 8. Containers and virtual cables (`orin-sandbox`, `virtual-cables`)
 

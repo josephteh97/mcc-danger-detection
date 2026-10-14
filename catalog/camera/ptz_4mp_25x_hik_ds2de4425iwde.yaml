@@ -1,0 +1,11 @@
+name: Hikvision DS-2DE4425IW-DE 4 MP 25x PTZ (wide end)
+source: https://www.hikvision.com/en/products/IP-Products/PTZ-Cameras/Pro-Series/ds-2de4425iw-de/
+verified: false            # IR range from the listing; the rest are typical values
+price_sgd: 650
+power_w: 17
+resolution_px: [2560, 1440]
+hfov_deg: 59.5
+form: ptz
+sun_hood: false
+true_wdr_db: 120
+ir_range_m: 100
