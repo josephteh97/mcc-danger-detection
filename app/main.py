@@ -60,7 +60,8 @@ class PoleApp:
         self.uplink = Uplink(up["queue"], self.mqtt)
         self.detector = make_detector(cfg["detector"])
         self.tracker = IoUTracker(max_age_s=cfg["alarm"]["clear_s"])
-        self.source = FrameSource(cfg["camera"]["url"], cfg["camera"].get("lost_after_s", 3.0))
+        self.source = FrameSource(cfg["camera"]["url"], cfg["camera"].get("lost_after_s", 3.0),
+                                  cfg["camera"].get("size", (1280, 720)))
         self.health = Health(self.emit)
         self.feet, self.boxes, self.dist = {}, {}, {}
         self.started, self._status_t, self._seq = time.monotonic(), 0.0, 0
@@ -95,7 +96,8 @@ class PoleApp:
             self.arm.park()
         event = {"kind": kind, "pid": pid, "level": level, "state": LEVEL_NAMES[level]}
         if pid is not None:
-            event["dist_m"] = round(self.dist.get(pid, self.fsm.people.get(pid).dist if pid in self.fsm.people else -1), 2)
+            person = self.fsm.people.get(pid)
+            event["dist_m"] = round(self.dist.get(pid, person.dist if person else -1.0), 2)
             event["zone_s"] = round(self.fsm.zone_time(pid, time.monotonic()), 2)
         if kind == "alarm" and frame is not None and pid in self.boxes:
             event["identity"] = identify(frame, self.boxes[pid])["result"]

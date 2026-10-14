@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pole Twin Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #d9dde5;
+    --accent: #2563eb; --ok: #15803d; --warn: #b45309; --alarm: #b91c1c; --btn: #eef1f6; --btn-hover: #e1e6ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --panel: #1a2029; --text: #e6e9ef; --muted: #9aa4b5; --line: #2c3441;
+            --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --alarm: #f87171; --btn: #252d39; --btn-hover: #303a49; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  .badge { padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; letter-spacing: .04em; border: 1px solid currentColor; }
+  .state-monitoring { color: var(--ok); } .state-warning { color: var(--warn); } .state-alarm { color: var(--alarm); }
+  .meta { color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  main { padding: 12px 16px 24px; display: grid; gap: 12px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  #view3d { width: 100%; height: 440px; border-radius: 8px; overflow: hidden; background: #0d1117; touch-action: none; }
+  video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; display: block; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button, select { font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+  button:hover { background: var(--btn-hover); }
+  button.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .faults { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; }
+  .pad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 48px); gap: 6px; user-select: none; touch-action: none; }
+  .pad button { font-size: 20px; padding: 0; }
+  .pad button.held { background: var(--accent); color: #fff; }
+  .stack { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  .scroll { overflow-x: auto; }
+  #events { max-height: 220px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .ev-caution { color: var(--warn); } .ev-warning { color: var(--warn); font-weight: 600; } .ev-alarm { color: var(--alarm); font-weight: 700; }
+  .ev-reset { color: var(--ok); } .ev-health { color: var(--accent); }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 12px; max-height: 120px; overflow-y: auto; margin: 6px 0; }
+  .checks label { display: flex; gap: 4px; align-items: center; font-size: 12px; }
+  #grid { max-width: 100%; border-radius: 6px; margin-top: 8px; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line);
+           padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); }
+  #toast.show { opacity: 1; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .full { grid-column: 1 / -1; }
+</style>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<script src="/static/vendor/hls.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Danger-zone pole twin</h1>
+  <span id="state" class="badge state-monitoring">MONITORING</span>
+  <div class="meta">
+    <span id="conn">connecting...</span><span id="weatherNow"></span><span id="scenarioNow"></span>
+    <span id="outputs"></span><span id="runNow"></span>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>3D site <span class="muted" id="mode">live</span></h2>
+    <div id="view3d"></div>
+    <div class="row" id="replayBar" style="margin-top:8px; display:none">
+      <button id="rpPrev">&#9664; frame</button><button id="rpPlay">play</button><button id="rpNext">frame &#9654;</button>
+      <input id="rpSlider" type="range" min="0" max="0" value="0" style="flex:1; min-width:120px">
+      <span class="muted" id="rpInfo"></span><button id="rpExit">back to live</button>
+    </div>
+  </section>
+  <div class="stack">
+    <section class="panel">
+      <h2>Camera: what the AI sees</h2>
+      <video id="video" muted playsinline autoplay></video>
+      <div class="muted" id="videoInfo">browser stream from the camera (HLS via this page)</div>
+    </section>
+    <section class="panel">
+      <h2>Human trial</h2>
+      <div class="row" style="gap:16px; align-items:flex-start">
+        <div class="pad" id="pad">
+          <span></span><button data-key="up" aria-label="up">&#9650;</button><span></span>
+          <button data-key="left" aria-label="left">&#9664;</button><button data-key="down" aria-label="down">&#9660;</button><button data-key="right" aria-label="right">&#9654;</button>
+        </div>
+        <div style="display:grid; gap:6px">
+          <label class="row"><input type="checkbox" id="run"> run (Shift)</label>
+          <label class="row"><input type="checkbox" id="kbd" checked> keyboard arrows / WASD</label>
+          <div class="row"><button data-cmd="add_worker">add worker</button><button data-cmd="switch">switch</button><button data-cmd="reset">reset</button></div>
+        </div>
+      </div>
+      <div class="muted">Up walks away from the camera, as on screen. The worker stops 0.5 s after you let go.</div>
+    </section>
+  </div>
+  <section class="panel">
+    <h2>Scenarios and weather</h2>
+    <div class="row" id="scenarios"></div>
+    <div class="row" style="margin-top:8px"><select id="weather"></select><button id="applyWeather" class="primary">set weather</button></div>
+  </section>
+  <section class="panel">
+    <h2>Faults</h2>
+    <div class="faults" id="faults"></div>
+  </section>
+  <section class="panel">
+    <h2>App events (cloud)</h2>
+    <div id="status" class="muted"></div>
+    <div id="events"></div>
+  </section>
+  <section class="panel">
+    <h2>Recorded runs</h2>
+    <div class="row"><select id="runs" style="flex:1; min-width:0"></select><button id="loadRun">replay</button><button id="refreshRuns">refresh</button></div>
+    <div class="muted">Every scenario starts a new run in /logs/run-&lt;time&gt;/ (truth, events, arm and relay logs).</div>
+  </section>
+  <section class="panel full">
+    <h2>Products: swap and compare</h2>
+    <div class="row"><select id="category"></select><button id="compare" class="primary">compare</button><span class="muted" id="cmpInfo"></span></div>
+    <div class="checks" id="products"></div>
+    <div class="checks" id="cmpWeather"></div>
+    <div class="scroll"><table id="cmpTable"></table></div>
+    <img id="grid" alt="" hidden>
+  </section>
+</main>
+<div id="toast"></div>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

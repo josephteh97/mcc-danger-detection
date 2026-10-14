@@ -1,0 +1,102 @@
+# Danger-zone pole digital twin, phase 1: six containers joined by virtual cables.
+#   docker compose up --build        then open http://localhost:8080
+# Solid cables (as on the real pole): poe_lan (Ethernet), usb_bus (USB serial), wan_4g (4G).
+# sim_ctrl is the twin's own control and video-to-dashboard network.
+name: twin
+
+services:
+  camera:                      # the camera's network endpoint: RTSP for the Orin, HLS for the dashboard
+    image: bluenviron/mediamtx:1.21.1
+    volumes: [./camera/mediamtx.yml:/mediamtx.yml:ro]
+    networks:
+      poe_lan: { ipv4_address: 192.168.10.20 }
+      sim_ctrl: { ipv4_address: 172.29.10.20 }
+    restart: unless-stopped
+
+  world:                       # renders the camera's view; the encoder is the camera's sensor feed
+    build: { context: ., dockerfile: world/Dockerfile }
+    command:                   # list form: compose would word-split a string command itself
+      - sh
+      - -c
+      - >-
+        while true; do
+        python3 world/world.py --fps 15 --truth dashboard:9100,192.168.10.2:9100
+        --weather ${WEATHER:-clear} --scenario ${SCENARIO:-demo_loop}
+        --control 0.0.0.0:9200 --arm-state /logs/arm.jsonl |
+        ffmpeg -loglevel error -f rawvideo -pix_fmt bgr24 -s 1280x720 -r 15 -i -
+        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 15
+        -f rtsp -rtsp_transport tcp rtsp://172.29.10.20:8554/stream1;
+        sleep 1; done
+    volumes: [logs:/logs:ro]
+    ports: ["127.0.0.1:9200:9200/udp"]   # trial keypad on this host only; remote users use the dashboard
+    networks: [poe_lan, sim_ctrl]
+    depends_on: [camera]
+    restart: unless-stopped
+
+  calib:                       # one-shot: writes the homography to the Orin's SSD, as an installer would
+    build: { context: ., dockerfile: world/Dockerfile }
+    command: python3 -m tools.calibrate --out /data/calib/homography.npy
+    volumes: [orin_data:/data]
+    network_mode: none
+    restart: "no"
+
+  devices:                     # laser arm and relay board emulators; socat turns them into USB cables
+    build: { context: ., dockerfile: devices/Dockerfile }
+    command: >
+      sh -c "python3 devices/arm_emulator.py --link /tmp/vdev/arm --state /logs/arm.jsonl &
+             python3 devices/relay_emulator.py --link /tmp/vdev/relay --state /logs/relay.jsonl &
+             sleep 1;
+             socat TCP-LISTEN:7001,reuseaddr,fork FILE:/tmp/vdev/arm,raw,echo=0 &
+             socat TCP-LISTEN:7002,reuseaddr,fork FILE:/tmp/vdev/relay,raw,echo=0 &
+             wait"
+    volumes: [logs:/logs]
+    networks: [usb_bus]
+    restart: unless-stopped
+
+  orin:                        # the Orin sandbox: same app, device paths and interfaces as the real box
+    build: { context: ., dockerfile: orin/Dockerfile, args: { BASE: "${ORIN_BASE:-ubuntu:22.04}" } }
+    cpus: 6
+    mem_limit: 8g
+    cap_add: [NET_ADMIN]       # lets tests shape the 4G link with tc netem
+    environment: [TWIN_HORN_MONITOR=1, TZ=Asia/Singapore]
+    volumes: [orin_data:/data]
+    networks:
+      poe_lan: { ipv4_address: 192.168.10.2 }
+      usb_bus: {}
+      wan_4g: { ipv4_address: 172.30.4.2 }
+    depends_on:
+      calib: { condition: service_completed_successfully }
+      devices: { condition: service_started }
+      cloud: { condition: service_started }
+      camera: { condition: service_started }
+    restart: "no"              # a power cut is 'docker kill' + 'docker start'
+
+  cloud:                       # stands in for the cloud endpoint
+    image: eclipse-mosquitto:2.0.22
+    volumes: [./cloud/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro]
+    networks: { wan_4g: { ipv4_address: 172.30.4.10 } }
+    restart: unless-stopped
+
+  dashboard:
+    build: { context: ., dockerfile: dashboard/Dockerfile }
+    ports: ["${DASHBOARD_BIND:-127.0.0.1}:8080:8080"]   # loopback only: it holds the Docker socket
+    environment:
+      - TWIN_PROJECT=twin
+      - CAMERA_HLS=http://172.29.10.20:8888
+      - WORLD_CONTROL=world:9200
+      - MQTT_BROKER=172.30.4.10
+      - POLE_ID=07
+      - TZ=Asia/Singapore
+    volumes: [/var/run/docker.sock:/var/run/docker.sock, logs:/logs]   # docker access = fault injection
+    networks:
+      sim_ctrl: { ipv4_address: 172.29.10.5 }
+      wan_4g: { ipv4_address: 172.30.4.20 }
+    restart: unless-stopped
+
+networks:                      # dynamic addresses come from the top half, fixed ones sit below it
+  poe_lan:  { internal: true, ipam: { config: [{ subnet: 192.168.10.0/24, ip_range: 192.168.10.128/25 }] } }
+  usb_bus:  { internal: true }
+  wan_4g:   { internal: true, ipam: { config: [{ subnet: 172.30.4.0/24, ip_range: 172.30.4.128/25 }] } }
+  sim_ctrl: { ipam: { config: [{ subnet: 172.29.10.0/24, ip_range: 172.29.10.128/25 }] } }
+
+volumes: { orin_data: {}, logs: {} }

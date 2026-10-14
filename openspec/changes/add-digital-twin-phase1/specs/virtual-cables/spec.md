@@ -6,19 +6,23 @@
 | Service | What it is | Networks and address |
 |---|---|---|
 | `camera` | MediaMTX RTSP and HLS server | `poe_lan` at `192.168.10.20`, and `sim_ctrl` for the dashboard's browser video |
-| `world` | renderer piped to ffmpeg, pushing to `rtsp://192.168.10.20:8554/stream1` | `poe_lan` and `sim_ctrl` |
+| `world` | renderer piped to ffmpeg; pushes the camera's sensor feed to the camera's `sim_ctrl` address and sends oracle truth to the Orin over `poe_lan` | `poe_lan` and `sim_ctrl` |
 | `devices` | arm and relay emulators, with socat TCP bridges on 7001 and 7002 | `usb_bus` |
 | `orin` | the sandbox, with `NET_ADMIN` for tc | `poe_lan` at `192.168.10.2`, `usb_bus`, and `wan_4g` at `172.30.4.2` |
 | `cloud` | Mosquitto on port 1883 | `wan_4g` at `172.30.4.10` |
 | `dashboard` | the FastAPI dashboard | `sim_ctrl` and `wan_4g` |
 
-The image tags for MediaMTX and Mosquitto SHALL be pinned to specific releases.
+The image tags for MediaMTX and Mosquitto SHALL be pinned to specific releases. Fixed addresses SHALL sit outside each network's dynamic `ip_range`, so a container without a fixed address can never take one.
 
 `docker compose up --build` SHALL bring the stack up, with the dashboard on `http://localhost:8080`.
 
 #### Scenario: Stack comes up
 - **WHEN** `docker compose up -d --build` runs on a host that meets the setup prerequisites
 - **THEN** all six services are running, and `http://localhost:8080` returns the dashboard within 60 s
+
+#### Scenario: Fixed addresses never collide
+- **WHEN** the stack starts in any container order
+- **THEN** the camera gets 192.168.10.20, the Orin gets 192.168.10.2 and 172.30.4.2, and the cloud gets 172.30.4.10
 
 ### Requirement: Isolated cable networks
 `poe_lan` (`192.168.10.0/24`), `usb_bus` and `wan_4g` (`172.30.4.0/24`) SHALL be internal Docker networks, so nothing on them reaches the real internet. `sim_ctrl` is the twin's own control network.

@@ -107,7 +107,9 @@ The chosen fix:
 - The dashboard reverse-proxies MediaMTX's HLS output (`:8888`) under `/video/`.
 - The browser plays it with hls.js, from the same origin and port 8080. This works through the tunnel.
 
-The "camera cable" fault disconnects only `poe_lan`, so the Orin loses the camera while the dashboard keeps showing the scene.
+The world also feeds the camera over `sim_ctrl`, to the camera's fixed `sim_ctrl` address: the renderer is the camera's sensor, not a network cable. So the "camera cable" fault disconnects only `poe_lan`, the Orin loses the camera, and the dashboard keeps showing the scene.
+
+MediaMTX 1.21 answers the first playlist request with a cookie-check redirect. Its `Location` points outside `/video/` and its cookie is `Secure`, which browsers drop on plain-http hosts. The proxy therefore follows the redirect server-side; the per-session `session=` query parameter in the variant playlists passes through unchanged.
 
 *Alternatives:*
 - Putting the dashboard on `poe_lan` puts a Docker-socket-holding service on the pole's LAN.
@@ -137,7 +139,7 @@ On site, an installer writes `/data/calib/homography.npy`. In the twin, a short-
 *Alternative:* mounting the world's state into the orin. This breaks the rule that the sandbox sees only what the real Orin sees.
 
 ### D10. Robust capture and cables
-- **Capture:** `cv2.VideoCapture` on RTSP can block for about 30 s when the network is cut. Capture therefore runs in a reader thread, and the main loop treats more than 3 s without a frame as "camera lost". It raises the health alert well inside V14's 10 s, and reopens the stream with backoff.
+- **Capture:** frames are decoded by an `ffmpeg` subprocess (RTSP over TCP to raw BGR at the configured size) read on a background thread. The main loop treats more than 3 s without a frame as "camera lost". It raises the health alert well inside V14's 10 s. A watchdog kills a stalled ffmpeg and reconnects with backoff. `cv2.VideoCapture` was rejected: its RTSP timeout options mean different things in different bundled FFmpeg versions (in 4.x, `timeout` switches RTSP into listen mode), and a blocked read can outlive the cable fault by minutes. On the real Orin the same reader can sit on a hardware-decoding pipeline.
 - **Serial cables:** the orin entrypoint wraps each `socat` in a retry loop, so a re-plugged cable comes back without restarting the app.
 - **PulseAudio:** runs in system mode in the container, because root and per-user daemons do not mix. The app plays tones on the `horn` sink with `paplay`.
 
@@ -204,6 +206,14 @@ Devtunnel rewrites Host and Origin to localhost by default, so FastAPI's WebSock
 ### D17. Pinned images and vendored front-end libraries
 - MediaMTX and Mosquitto are pinned to release tags. The guide's `mediamtx:latest` is pinned once it works.
 - three.js and hls.js are vendored into `dashboard/static/` at pinned versions, so the dashboard works with no internet access.
+
+### D18. Findings while building the stack (Step 2)
+- **Folded YAML breaks the guide's world command.** In the guide's compose snippet, the more-indented continuation lines of a `>` block keep their newlines, so `-c:v libx264 ...` runs as a separate, broken command. Compose also word-splits string commands itself, dropping backslashes. The world command therefore uses the list form (`[sh, -c, <folded block>]`), with every line at the same indent.
+- **Dynamic addresses can steal fixed ones.** A container without a fixed address on `poe_lan` (the world) took 192.168.10.2, the Orin's address. Each network now limits dynamic addresses to the top half of its subnet (`ip_range`).
+- **Browsers need `-pix_fmt yuv420p`.** Without it, libx264 encodes BGR input as 4:4:4, which browsers cannot decode.
+- **The `pulseaudio` daemon package is needed.** The guide's apt list has only `pulseaudio-utils`. The daemon runs with an explicit null sink and socket, because `pulseaudio --start` refuses to run as root.
+- **The arm-USB `pkill` pattern needs an anchor.** `pkill -f TCP-LISTEN:7001` also matches the devices container's PID 1, whose command line contains that text. Inside `sh -c` it matches and kills the shell itself (exit 143). The dashboard runs `pkill -f '^socat TCP-LISTEN:7001'` directly, and restores with an anchored `pgrep`.
+- **Contrast tuning.** The renderer's light, visibility and window-fog values were tuned so that every preset's worker contrast lands within a few points of the guide's table: fog 19%, downpour 26%, haze 66%, night 69% with the floodlight and 12% without, low sun 60% without true WDR and 90% with it. The numbers are recorded in `world/weather.py`.
 
 ## Risks / Trade-offs
 

@@ -1,0 +1,9 @@
+.venv
+.git
+.claude
+.share
+logs
+reports
+openspec
+**/__pycache__
+*.pyc

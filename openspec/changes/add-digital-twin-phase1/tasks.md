@@ -13,7 +13,7 @@
 - [x] 2.4 `app/track.py`: IoU tracker that keeps tracks through short gaps
 - [x] 2.5 `app/identify.py`: stub returning "unknown"
 - [x] 2.6 `app/health.py`: capture reader thread, 3 s frame-age watchdog, "camera offline" alert queued to the uplink, reopen with backoff
-- [ ] 2.7 `app/main.py`: the guide's loop: capture, detect, track, alarm, act (horn tones on `horn`, relays per design D4, floodlight schedule), aim, uplink flush
+- [x] 2.7 `app/main.py`: the guide's loop: capture, detect, track, alarm, act (horn tones on `horn`, relays per design D4, floodlight schedule), aim, uplink flush
 - [x] 2.8 `app/config.yaml` with the guide's twin values
 - [x] 2.9 Verify: `python3 tests/smoke.py` shows V01–V04, U01–U03 PASS
 
@@ -57,10 +57,10 @@
 
 ## 8. Containers and virtual cables (`orin-sandbox`, `virtual-cables`)
 
-- [ ] 8.1 `orin/Dockerfile` with `ARG BASE=ubuntu:22.04`; `orin/entrypoint.sh` with socat retry loops for `/dev/ttyARM` and `/dev/ttyRELAY`, PulseAudio in system mode with the `horn` null sink, then `exec python3 -m app.main`
-- [ ] 8.2 `world/Dockerfile` (python, opencv, ffmpeg), `devices/Dockerfile` (python, socat), `dashboard/Dockerfile`
-- [ ] 8.3 `cloud/mosquitto.conf` (listener 1883, anonymous allowed on the internal `wan_4g` only)
-- [ ] 8.4 `compose.yaml`:
+- [x] 8.1 `orin/Dockerfile` with `ARG BASE=ubuntu:22.04`; `orin/entrypoint.sh` with socat retry loops for `/dev/ttyARM` and `/dev/ttyRELAY`, PulseAudio in system mode with the `horn` null sink, then `exec python3 -m app.main`
+- [x] 8.2 `world/Dockerfile` (python, opencv, ffmpeg), `devices/Dockerfile` (python, socat), `dashboard/Dockerfile`
+- [x] 8.3 `cloud/mosquitto.conf` (listener 1883, anonymous allowed on the internal `wan_4g` only)
+- [x] 8.4 `compose.yaml`:
   - the guide's services and networks
   - pinned image tags
   - camera also on `sim_ctrl`
@@ -68,25 +68,25 @@
   - `127.0.0.1:8080` and `127.0.0.1:9200/udp` only
   - devices logging to `/logs/arm.jsonl` and `/logs/relay.jsonl`
   - world started with `--control 0.0.0.0:9200`
-- [ ] 8.5 Verify: `docker compose up -d --build`; `docker compose ps` shows the services up; `curl -fsS http://localhost:8080/` returns 200
+- [x] 8.5 Verify: `docker compose up -d --build`; `docker compose ps` shows the services up; `curl -fsS http://localhost:8080/` returns 200
 
 ## 9. Dashboard (`dashboard`)
 
-- [ ] 9.1 `dashboard/server.py`: truth reader (UDP 9100), arm and relay log tailers, MQTT event subscriber, `/live` WebSocket at 15 Hz
-- [ ] 9.2 `/video/` reverse proxy to MediaMTX HLS on the camera service
-- [ ] 9.3 Fault endpoints with an allow-list (camera_cable, 4g_weak, 4g_outage, arm_usb, orin_hang, power_cut, each with a restore); unknown names give 404
-- [ ] 9.4 Scenario, weather and trial-key endpoints relayed to `world:9200`
-- [ ] 9.5 Products panel backed by the catalogue loader and `tools.compare`
-- [ ] 9.6 Run recording to `/logs/run-<time>/` and the replay API
-- [ ] 9.7 `dashboard/static/`: three.js scene (pit, rings, pole, camera frustum, workers, arm and beam, strobe and floodlight, level), hls.js player, trial pad with on-screen arrows, vendored libraries at pinned versions
-- [ ] 9.8 Verify: open `http://localhost:8080`; the video plays, the 3D view moves, and a trial-pad walk-in shows caution, then warning, then alarm, then reset
+- [x] 9.1 `dashboard/server.py`: truth reader (UDP 9100), arm and relay log tailers, MQTT event subscriber, `/live` WebSocket at 15 Hz
+- [x] 9.2 `/video/` reverse proxy to MediaMTX HLS on the camera service
+- [x] 9.3 Fault endpoints with an allow-list (camera_cable, 4g_weak, 4g_outage, arm_usb, orin_hang, power_cut, each with a restore); unknown names give 404
+- [x] 9.4 Scenario, weather and trial-key endpoints relayed to `world:9200`
+- [x] 9.5 Products panel backed by the catalogue loader and `tools.compare`
+- [x] 9.6 Run recording to `/logs/run-<time>/` and the replay API
+- [x] 9.7 `dashboard/static/`: three.js scene (pit, rings, pole, camera frustum, workers, arm and beam, strobe and floodlight, level), hls.js player, trial pad with on-screen arrows, vendored libraries at pinned versions
+- [x] 9.8 Verify: open `http://localhost:8080`; the video plays, the 3D view moves, and a trial-pad walk-in shows caution, then warning, then alarm, then reset
 
 ## 10. Full-stack tests (`validation-suite`)
 
-- [ ] 10.1 `tests/conftest.py`: docker-SDK fixtures, skip with "stack not running" when the stack is down, helpers to run scenarios and read horn-monitor, MQTT and arm logs
-- [ ] 10.2 `tests/test_stack.py`: V12 (horn latency), V13 (pause leads to laser off), V14 (camera cable), V15 (two workers), V16 (power cut), plus the 4G weak and outage behaviours and the arm USB fault
-- [ ] 10.3 `tests/test_quick.py`: wraps the 37 quick checks for pytest and JUnit; V17 skipped (needs footage); V18 opt-in with `TWIN_ARM64=1`
-- [ ] 10.4 Verify: `docker compose up -d --build && pytest tests/ -v --junitxml=reports/twin-$(date +%F).xml && docker compose down`
+- [x] 10.1 `tests/conftest.py`: docker-SDK fixtures, skip with "stack not running" when the stack is down, helpers to run scenarios and read horn-monitor, MQTT and arm logs
+- [x] 10.2 `tests/test_stack.py`: V12 (horn latency), V13 (pause leads to laser off), V14 (camera cable), V15 (two workers), V16 (power cut), plus the 4G weak and outage behaviours and the arm USB fault
+- [x] 10.3 `tests/test_quick.py`: wraps the 37 quick checks for pytest and JUnit; V17 skipped (needs footage); V18 opt-in with `TWIN_ARM64=1`
+- [x] 10.4 Verify: `docker compose up -d --build && pytest tests/ -v --junitxml=reports/twin-$(date +%F).xml && docker compose down`
 
 ## 11. Remote access (`remote-access`, Step 3)
 
@@ -109,5 +109,5 @@
 
 ## 12. Documentation and close-out
 
-- [ ] 12.1 README: host setup, quick checks, compose up, dashboard, trial mode, fault table, and the deviations from the guide (pointing to `design.md`)
+- [x] 12.1 README: host setup, quick checks, compose up, dashboard, trial mode, fault table, and the deviations from the guide (pointing to `design.md`)
 - [ ] 12.2 Verify: `openspec validate add-digital-twin-phase1 --strict` passes; archive the change after Step 3 is accepted (`openspec archive add-digital-twin-phase1`)

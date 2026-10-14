@@ -5,6 +5,7 @@ site:
 camera:
   url: rtsp://192.168.10.20:8554/stream1
   homography: /data/calib/homography.npy                       # written by the calibration tool
+  size: [1280, 720]                                            # decode size (the stream is scaled to this)
   lost_after_s: 3.0
 alarm: { alarm_buffer_m: 1.5, warn_buffer_m: 3.0, dwell_s: 1.0, escalate_s: 3.0, clear_s: 2.0 }
 arm: { xy: [-6.0, 3.6], heading_deg: -30, pivot_h_m: 1.1 }
