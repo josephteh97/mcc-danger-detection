@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Twin runtime output
+logs/
+reports/
+*.npy
+
+# Remote access state (share.sh)
+.share/

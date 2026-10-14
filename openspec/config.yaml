@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  Project: Danger-Zone Pole Digital Twin (Phase 1) for an MCC site pit alarm.
+  A pole carries a fixed 8 MP camera, an Orin AI box, a horn, a strobe, a floodlight,
+  a laser pointer arm and solar power. The pole watches an open pit, warns workers who
+  come near it and alarms if they stay. The twin is a set of Docker containers on one
+  Linux PC that stands in for the pole, the site and every device and cable, so the real
+  alarm software (app/) runs unchanged inside an Orin-shaped sandbox container.
+
+  Source of truth: "Danger-Zone Pole Digital Twin: Linux Implementation Guide"
+  (14 Oct 2026, @Joseph). Validation IDs V01-V34 come from its test matrix.
+
+  Stack: Python 3 (numpy, OpenCV headless, PyYAML, paho-mqtt, FastAPI, uvicorn, docker SDK,
+  pytest), Docker Engine + Compose, MediaMTX (RTSP/HLS), Eclipse Mosquitto (MQTT), socat
+  (virtual serial cables), PulseAudio null sink (horn), three.js (dashboard 3D view),
+  Microsoft Dev Tunnels (remote access).
+
+  Conventions:
+  - Repo root is the guide's twin/ folder; compose project name is "twin".
+  - Safety decisions (zone geometry, alarm state machine, aim angles, uplink queue) are
+    pure functions in app/alarm.py and app/links.py, tested without hardware.
+  - Emulators expose the same interface as the real device; swapping in real hardware
+    changes app/config.yaml and compose.yaml only, never app code.
+  - Units: metres, seconds, degrees. Times use time.monotonic() in the app.
+  - Commits carry no AI co-author or "Generated with" attribution lines.
+
+rules:
+  specs:
+    - Tag scenarios that implement a guide validation check with the check ID, e.g. "(V02)".
+    - Use the numeric thresholds from the guide verbatim (1.5 m, 3 m, 1 s, 3 s, 2 s, 2 s watchdog).
+  tasks:
+    - Each task group ends with the command that verifies it.
