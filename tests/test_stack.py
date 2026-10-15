@@ -3,14 +3,17 @@
     docker compose up -d --build
     pytest tests/ -v --junitxml=reports/twin-$(date +%F).xml
 """
+import ipaddress
+import json
 import math
 import os
+import shutil
 import subprocess
 import time
 
 import pytest
 
-from conftest import zone_crossings
+from conftest import DASHBOARD, PROJECT, zone_crossings
 
 FRAME = 1 / 15
 DASHBOARD_WS = os.environ.get("TWIN_DASHBOARD", "http://127.0.0.1:8080").replace("http", "ws", 1) + "/live"
@@ -38,6 +41,8 @@ def test_V12_end_to_end_alarm_latency(stack):
 
 def test_V13_orin_hang_laser_off(stack):
     """Laser off within 2 s of docker pause (2 s after the last heartbeat, which is at most one frame earlier)."""
+    stack.scenario("idle")       # the previous walk-in may still hold the laser on; start from off
+    stack.wait_for(lambda: not (stack.state().get("arm") or {}).get("laser"), 15, 0.1, "the laser off")
     stack.scenario("single_walk_in")
     stack.wait_for(lambda: (stack.state().get("arm") or {}).get("laser"), 20, 0.05, "the laser on")
     t_pause = time.time()
@@ -108,6 +113,8 @@ def test_V16_restart_after_power_cut(stack):
     print(f"V16: back in Monitoring {after['ts'] - t_cut:.1f} s after the cut")
     assert after["zones"] == before["zones"] and after["pit"] == before["pit"]
     assert after["homography_sha"] == before["homography_sha"]
+    sinks = stack.c("orin").exec_run(["pactl", "list", "short", "sinks"]).output.decode(errors="replace")
+    assert "horn" in sinks, f"no horn sink after the restart: {sinks}"
 
 
 @pytest.mark.skip(reason="V17 needs recorded site footage (YOLO mode, ffmpeg -re -stream_loop -1 -i site_clip.mp4 ...)")
@@ -168,6 +175,64 @@ def test_fault_arm_usb_unplugged(stack):
     finally:
         stack.fault("arm_usb", restore=True)
     stack.wait_for(lambda: (s := stack.orin_status()) and s["arm_online"], 20, 0.5, "arm back online")
+
+
+# ---------------------------------------------------------------- regressions from the Step 2 findings
+def test_guide_arm_usb_command_unplugs_only_the_arm(stack):
+    """The guide's command, verbatim: `docker exec twin-devices-1 pkill -f TCP-LISTEN:7001`.
+    Only the arm bridge stops; the devices container (same PID 1, no restart), both emulators
+    and the relay bridge keep running."""
+    devices = stack.c("devices")
+    started, restarts = devices.attrs["State"]["StartedAt"], devices.attrs["RestartCount"]
+
+    def running(pattern):
+        return devices.exec_run(["pgrep", "-f", pattern]).exit_code == 0
+
+    res = devices.exec_run(["pkill", "-f", "TCP-LISTEN:7001"])
+    try:
+        assert res.exit_code == 0, "no arm bridge was running"
+        time.sleep(2.0)
+        devices.reload()
+        assert devices.status == "running"
+        assert (devices.attrs["State"]["StartedAt"], devices.attrs["RestartCount"]) == (started, restarts), \
+            "the devices container restarted: pkill matched its PID 1"
+        assert not running("^socat TCP-LISTEN:7001"), "the arm bridge is still listening"
+        assert running("^socat TCP-LISTEN:7002") and running("arm_emulator.py") and running("relay_emulator.py")
+        stack.wait_for(lambda: (s := stack.orin_status()) and not s["arm_online"], 15, 0.5, "arm offline")
+    finally:
+        stack.fault("arm_usb", restore=True)
+    stack.wait_for(lambda: (s := stack.orin_status()) and s["arm_online"], 20, 0.5, "arm back online")
+
+
+def test_fixed_addresses_held(stack):
+    """Fixed addresses never collide: each service holds its own, dynamic ones sit above them."""
+    def ips(service):
+        nets = stack.c(service).attrs["NetworkSettings"]["Networks"]
+        return {n.removeprefix(f"{PROJECT}_"): v["IPAddress"] for n, v in nets.items()}
+    orin = ips("orin")
+    assert ips("camera")["poe_lan"] == "192.168.10.20"
+    assert (orin["poe_lan"], orin["wan_4g"]) == ("192.168.10.2", "172.30.4.2")
+    assert ips("cloud")["wan_4g"] == "172.30.4.10"
+    assert ipaddress.ip_address(ips("world")["poe_lan"]) in ipaddress.ip_network("192.168.10.128/25")
+
+
+def test_browser_stream_is_h264_420(stack):
+    """The stream a browser gets (HLS through the dashboard's /video/ proxy) is H.264 4:2:0, 1280x720."""
+    if not shutil.which("ffprobe"):
+        pytest.skip("ffprobe not installed on this host")
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=codec_name,pix_fmt,width,height", "-of", "json",
+                          f"{DASHBOARD}/video/stream1/index.m3u8"], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    s = json.loads(out.stdout)["streams"][0]
+    assert (s["codec_name"], s["pix_fmt"], s["width"], s["height"]) == ("h264", "yuv420p", 1280, 720)
+
+
+def test_horn_sink_visible_to_docker_exec(stack):
+    """`docker exec twin-orin-1 pactl list short sinks` shows `horn` (the orin-sandbox scenario)."""
+    res = stack.c("orin").exec_run(["pactl", "list", "short", "sinks"])
+    out = res.output.decode(errors="replace")
+    assert res.exit_code == 0 and "horn" in out, out
 
 
 def _hold_keys(ws, keys, seconds, run=False):

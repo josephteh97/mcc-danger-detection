@@ -9,3 +9,4 @@ COPY app/ app/
 COPY catalog/ catalog/
 COPY world/ world/
 COPY tools/__init__.py tools/calibrate.py tools/
+CMD ["sh", "world/entrypoint.sh"]

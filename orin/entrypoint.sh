@@ -11,13 +11,12 @@ plug() {   # $1 = device path, $2 = host:port of the far end; re-plugs after the
 plug /dev/ttyARM devices:7001 &
 plug /dev/ttyRELAY devices:7002 &
 
-# PulseAudio with a null sink named 'horn' (the guide's 'pulseaudio --start' refuses to run as root)
-export PULSE_SERVER=unix:/tmp/pulse/native
-mkdir -p /tmp/pulse
-pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit -n \
-  --load="module-null-sink sink_name=horn" \
-  --load="module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse/native" >/dev/null 2>&1
-for i in $(seq 1 50); do pactl info >/dev/null 2>&1 && break; sleep 0.1; done
+# PulseAudio with a null sink named 'horn' (the guide's line). As root it only warns that it is
+# not meant to run as root; 'docker exec' sessions find the same daemon. A power cut here is
+# 'docker kill' + 'docker start', which keeps /tmp where a real boot would clear it, and the old
+# daemon's pid file then makes '--start' exit 0 without starting one: clear that state first.
+rm -rf /tmp/pulse-* "$HOME"/.config/pulse/*-runtime
+pulseaudio --start --exit-idle-time=-1 && pactl load-module module-null-sink sink_name=horn
 
 if [ "${TWIN_HORN_MONITOR:-0}" = "1" ]; then
   python3 /opt/pole/twin/horn_monitor.py >> /data/horn.log 2>/dev/null &

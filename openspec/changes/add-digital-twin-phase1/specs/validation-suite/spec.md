@@ -61,6 +61,25 @@ If the stack is not running, the full-stack tests SHALL be skipped with that rea
 - **WHEN** pytest runs with no stack up
 - **THEN** the full-stack tests are skipped with "stack not running", and the quick checks still run
 
+### Requirement: Regression checks for the fixes to the guide's snippets
+The pytest suite SHALL check that each fix to the guide's snippets (design D18) stays in place. `tests/test_compose.py` SHALL need no Docker. The live checks in `tests/test_stack.py` SHALL run with the full-stack suite. None of these SHALL count among the 37 quick checks.
+
+| Fix | Static check (`tests/test_compose.py`) | Live check (`tests/test_stack.py`) |
+|---|---|---|
+| World pipeline in `world/entrypoint.sh` | the world service has no `command:`; the script parses; its one ffmpeg command holds the encoder and the RTSP output | the browser stream is H.264 |
+| Fixed addresses outside `ip_range` | every fixed address is inside its subnet and outside the dynamic range | each service holds its fixed address |
+| `-pix_fmt yuv420p` | set on the encoder output | the browser stream is `yuv420p`, 1280×720 |
+| PulseAudio daemon and stale state | the daemon package is installed and the `horn` sink is loaded | `docker exec … pactl list short sinks` shows `horn`, also after V16's power cut |
+| Arm-USB command run directly | none | the guide's `pkill` stops only the arm bridge |
+
+#### Scenario: Static checks without Docker
+- **WHEN** `pytest tests/test_compose.py` runs on a host without Docker
+- **THEN** every check runs and passes
+
+#### Scenario: A fix is undone
+- **WHEN** the world's pipeline goes back to a folded `command:`, a fixed address moves into the dynamic range, or the encoder loses `-pix_fmt yuv420p`
+- **THEN** `pytest tests/test_compose.py` fails and names the problem
+
 ### Requirement: Validation matrix traceability
 Every check V01–V34 in the guide's validation matrix SHALL map to exactly one test. Its pass criterion SHALL be the one in the matrix:
 

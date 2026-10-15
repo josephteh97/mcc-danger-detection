@@ -16,7 +16,9 @@ The world simulator (`world/world.py`) SHALL load the site from `site.yaml`:
 ### Requirement: Camera rendering
 The world SHALL render the camera's view with plain OpenCV, needing no GPU. The default camera is a pinhole at the real pose: 6.5 m up, about 8 m from the pit, aimed at the pit, 90° horizontal field of view.
 
-It SHALL write 1280×720 BGR frames to stdout at the `--fps` rate (default 15). `ffmpeg` encodes them as H.264 and pushes them to `rtsp://192.168.10.20:8554/stream1`.
+It SHALL write 1280×720 BGR frames to stdout at the `--fps` rate (default 15). The world image's `world/entrypoint.sh` SHALL pipe them into a single `ffmpeg` command that encodes H.264 with `-pix_fmt yuv420p` and publishes `stream1` to the camera over `sim_ctrl`. 4:2:0 is the only H.264 format browsers decode. The Orin reads the stream as `rtsp://192.168.10.20:8554/stream1`.
+
+The pipeline SHALL NOT be written as a folded YAML `command:`. In the guide's version, the line breaks split ffmpeg's encoder and output options into separate shell commands, and no stream was published.
 
 The renderer SHALL draw:
 - the ground, the pit and site features
@@ -27,6 +29,10 @@ The renderer SHALL draw:
 #### Scenario: Frame format
 - **WHEN** the world runs with `--fps 15`
 - **THEN** it writes 1280×720×3 byte frames at 15 frames per second
+
+#### Scenario: Browser-decodable stream
+- **WHEN** `ffprobe` reads `http://127.0.0.1:8080/video/stream1/index.m3u8`, the stream a browser gets
+- **THEN** the video is H.264, `yuv420p`, 1280×720
 
 #### Scenario: Laser dot drawn where the beam lands
 - **WHEN** the arm state shows the laser on at a given pan and tilt

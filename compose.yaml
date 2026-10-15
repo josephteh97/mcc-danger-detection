@@ -14,19 +14,8 @@ services:
     restart: unless-stopped
 
   world:                       # renders the camera's view; the encoder is the camera's sensor feed
-    build: { context: ., dockerfile: world/Dockerfile }
-    command:                   # list form: compose would word-split a string command itself
-      - sh
-      - -c
-      - >-
-        while true; do
-        python3 world/world.py --fps 15 --truth dashboard:9100,192.168.10.2:9100
-        --weather ${WEATHER:-clear} --scenario ${SCENARIO:-demo_loop}
-        --control 0.0.0.0:9200 --arm-state /logs/arm.jsonl |
-        ffmpeg -loglevel error -f rawvideo -pix_fmt bgr24 -s 1280x720 -r 15 -i -
-        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 15
-        -f rtsp -rtsp_transport tcp rtsp://172.29.10.20:8554/stream1;
-        sleep 1; done
+    build: { context: ., dockerfile: world/Dockerfile }   # runs world/entrypoint.sh (renderer | ffmpeg)
+    environment: [WEATHER, SCENARIO]   # from the shell: WEATHER=night_rain docker compose up
     volumes: [logs:/logs:ro]
     ports: ["127.0.0.1:9200:9200/udp"]   # trial keypad on this host only; remote users use the dashboard
     networks: [poe_lan, sim_ctrl]

@@ -3,6 +3,7 @@
 ARG BASE=ubuntu:22.04
 FROM ${BASE}
 ENV DEBIAN_FRONTEND=noninteractive TZ=Asia/Singapore PYTHONUNBUFFERED=1
+# 'pulseaudio' (the daemon) is added to the guide's list: 'pulseaudio-utils' has only the clients.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip python3-numpy socat iproute2 pulseaudio pulseaudio-utils alsa-utils ffmpeg tzdata \
     && rm -rf /var/lib/apt/lists/*

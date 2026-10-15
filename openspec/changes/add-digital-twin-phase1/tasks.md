@@ -57,8 +57,8 @@
 
 ## 8. Containers and virtual cables (`orin-sandbox`, `virtual-cables`)
 
-- [x] 8.1 `orin/Dockerfile` with `ARG BASE=ubuntu:22.04`; `orin/entrypoint.sh` with socat retry loops for `/dev/ttyARM` and `/dev/ttyRELAY`, PulseAudio in system mode with the `horn` null sink, then `exec python3 -m app.main`
-- [x] 8.2 `world/Dockerfile` (python, opencv, ffmpeg), `devices/Dockerfile` (python, socat), `dashboard/Dockerfile`
+- [x] 8.1 `orin/Dockerfile` with `ARG BASE=ubuntu:22.04`; `orin/entrypoint.sh` with socat retry loops for `/dev/ttyARM` and `/dev/ttyRELAY`, the guide's PulseAudio line (daemon package added, stale runtime state cleared first) with the `horn` null sink, then `exec python3 -m app.main`
+- [x] 8.2 `world/Dockerfile` (python, opencv, ffmpeg; runs `world/entrypoint.sh`, the renderer piped into ffmpeg), `devices/Dockerfile` (python, socat), `dashboard/Dockerfile`
 - [x] 8.3 `cloud/mosquitto.conf` (listener 1883, anonymous allowed on the internal `wan_4g` only)
 - [x] 8.4 `compose.yaml`:
   - the guide's services and networks
@@ -87,6 +87,7 @@
 - [x] 10.2 `tests/test_stack.py`: V12 (horn latency), V13 (pause leads to laser off), V14 (camera cable), V15 (two workers), V16 (power cut), plus the 4G weak and outage behaviours and the arm USB fault
 - [x] 10.3 `tests/test_quick.py`: wraps the 37 quick checks for pytest and JUnit; V17 skipped (needs footage); V18 opt-in with `TWIN_ARM64=1`
 - [x] 10.4 Verify: `docker compose up -d --build && pytest tests/ -v --junitxml=reports/twin-$(date +%F).xml && docker compose down`
+- [x] 10.5 Regression checks for the fixes to the guide's snippets (design D18): `tests/test_compose.py` (static, no Docker), plus live checks in `tests/test_stack.py` (the guide's arm-USB command, fixed addresses, the browser stream format, the horn sink from `docker exec` and after V16's power cut). V13 starts from the laser off, so the previous walk-in cannot satisfy its precondition.
 
 ## 11. Remote access (`remote-access`, Step 3)
 

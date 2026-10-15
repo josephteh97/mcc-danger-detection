@@ -141,7 +141,7 @@ On site, an installer writes `/data/calib/homography.npy`. In the twin, a short-
 ### D10. Robust capture and cables
 - **Capture:** frames are decoded by an `ffmpeg` subprocess (RTSP over TCP to raw BGR at the configured size) read on a background thread. The main loop treats more than 3 s without a frame as "camera lost". It raises the health alert well inside V14's 10 s. A watchdog kills a stalled ffmpeg and reconnects with backoff. `cv2.VideoCapture` was rejected: its RTSP timeout options mean different things in different bundled FFmpeg versions (in 4.x, `timeout` switches RTSP into listen mode), and a blocked read can outlive the cable fault by minutes. On the real Orin the same reader can sit on a hardware-decoding pipeline.
 - **Serial cables:** the orin entrypoint wraps each `socat` in a retry loop, so a re-plugged cable comes back without restarting the app.
-- **PulseAudio:** runs in system mode in the container, because root and per-user daemons do not mix. The app plays tones on the `horn` sink with `paplay`.
+- **PulseAudio:** started with the guide's line, as root, which PulseAudio only warns about. The entrypoint first clears the runtime state a previous run left in `/tmp` (D18). The app plays tones on the `horn` sink with `paplay`.
 
 ### D11. Uplink: SQLite queue with MQTT QoS 1, strictly in order
 - `Uplink.put()` appends an event with an increasing sequence number.
@@ -207,12 +207,19 @@ Devtunnel rewrites Host and Origin to localhost by default, so FastAPI's WebSock
 - MediaMTX and Mosquitto are pinned to release tags. The guide's `mediamtx:latest` is pinned once it works.
 - three.js and hls.js are vendored into `dashboard/static/` at pinned versions, so the dashboard works with no internet access.
 
-### D18. Findings while building the stack (Step 2)
-- **Folded YAML breaks the guide's world command.** In the guide's compose snippet, the more-indented continuation lines of a `>` block keep their newlines, so `-c:v libx264 ...` runs as a separate, broken command. Compose also word-splits string commands itself, dropping backslashes. The world command therefore uses the list form (`[sh, -c, <folded block>]`), with every line at the same indent.
+### D18. Fixes to the guide's snippets
+Each fix was reproduced against the guide's own text. Each has a regression check in `tests/test_compose.py` (no Docker needed) or `tests/test_stack.py`.
+- **The world command splits ffmpeg's options.** In a folded (`>`) block, more-indented lines keep their line breaks. In the guide's world command, sh therefore runs `ffmpeg … -i -` with no encoder or output, then fails on `-c:v …` and `-f rtsp …` as separate commands ("not found"). No stream is ever published. The pipeline now lives in `world/entrypoint.sh`, which the world image runs, so neither YAML folding nor Compose's own word-splitting touches it. The devices command uses the same folded form but works, because each of its lines ends in `&` or `;`. It is kept as the guide has it.
 - **Dynamic addresses can steal fixed ones.** A container without a fixed address on `poe_lan` (the world) took 192.168.10.2, the Orin's address. Each network now limits dynamic addresses to the top half of its subnet (`ip_range`).
 - **Browsers need `-pix_fmt yuv420p`.** Without it, libx264 encodes BGR input as 4:4:4, which browsers cannot decode.
-- **The `pulseaudio` daemon package is needed.** The guide's apt list has only `pulseaudio-utils`. The daemon runs with an explicit null sink and socket, because `pulseaudio --start` refuses to run as root.
-- **The arm-USB `pkill` pattern needs an anchor.** `pkill -f TCP-LISTEN:7001` also matches the devices container's PID 1, whose command line contains that text. Inside `sh -c` it matches and kills the shell itself (exit 143). The dashboard runs `pkill -f '^socat TCP-LISTEN:7001'` directly, and restores with an anchored `pgrep`.
+- **The PulseAudio daemon is missing, and its stale state blocks a restart.**
+  - The guide's apt list has only `pulseaudio-utils`, so `pulseaudio` is not found and the horn sink never exists. The `pulseaudio` package is added.
+  - The guide's start line then works as root; it only warns.
+  - After a power cut (`docker kill`, then `docker start`), the previous daemon's pid file and socket are still in `/tmp`. `pulseaudio --start` then exits 0 without starting a daemon, so the horn stays silent. The entrypoint clears that runtime state first, as a real boot would.
+- **The arm-USB command must not run inside a shell.**
+  - Run as the guide writes it, `docker exec twin-devices-1 pkill -f TCP-LISTEN:7001` works. It also matches the devices container's PID 1, but PID 1 ignores signals it has no handler for, so only the socat bridge stops.
+  - Wrapped in `sh -c`, the pattern also matches the shell, so pkill kills its own shell (exit 143). That is how the dashboard first ran it.
+  - The dashboard now runs the guide's command directly. Its restore runs inside `sh -c`, so it checks for the bridge with an anchored `pgrep -f '^socat TCP-LISTEN:7001'`.
 - **Contrast tuning.** The renderer's light, visibility and window-fog values were tuned so that every preset's worker contrast lands within a few points of the guide's table: fog 19%, downpour 26%, haze 66%, night 69% with the floodlight and 12% without, low sun 60% without true WDR and 90% with it. The numbers are recorded in `world/weather.py`.
 
 ## Risks / Trade-offs

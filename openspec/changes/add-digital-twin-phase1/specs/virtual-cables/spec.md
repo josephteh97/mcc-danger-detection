@@ -55,6 +55,12 @@ Each physical cable SHALL be something that can be cut on command. The commands 
 
 `$WAN` is the orin container's interface on `172.30.4.0/24`.
 
+Each command SHALL be run as shown, without wrapping it in `sh -c`. The arm-USB `pkill` pattern also matches the devices container's PID 1, which is harmless because PID 1 ignores signals it has no handler for. Inside `sh -c`, however, the pattern also matches the shell itself, so pkill kills its own shell (exit 143).
+
+#### Scenario: Arm USB unplugged with the guide's command
+- **WHEN** `docker exec twin-devices-1 pkill -f TCP-LISTEN:7001` runs
+- **THEN** only the arm bridge stops. The devices container keeps running without a restart, the relay bridge and both emulators keep running, and the app reports the arm offline.
+
 #### Scenario: Orin hang (V13)
 - **WHEN** `docker pause twin-orin-1` runs while the laser is on
 - **THEN** the laser is off and the arm is parking within 2 s of the last heartbeat. The last heartbeat comes at most one frame (67 ms) before the pause.

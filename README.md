@@ -42,7 +42,7 @@ The expected result is **36 PASS and 1 known FAIL**. V11 fails because the batte
 ```bash
 docker compose up --build          # then open http://localhost:8080
 WEATHER=night_rain SCENARIO=idle docker compose up -d --build
-pytest tests/ -v --junitxml=reports/twin-$(date +%F).xml   # quick checks + full-stack V12-V16 and fault rows
+pytest tests/ -v --junitxml=reports/twin-$(date +%F).xml   # quick checks, static checks, full-stack V12-V16 and faults
 docker compose down
 ```
 
@@ -76,7 +76,7 @@ The only ports published on the host are **127.0.0.1:8080**, the dashboard, and 
 | Camera cable unplugged | `docker network disconnect twin_poe_lan twin-camera-1` | "Camera offline" alert within 10 s, queued for the cloud |
 | 4G weak | `docker exec twin-orin-1 sh -c 'tc qdisc add dev $WAN root netem delay 120ms 40ms loss 5%'` | Events still arrive, a little later |
 | 4G outage | same with `loss 100%`; restore with `tc qdisc del dev $WAN root` | Events queue on disk and arrive in order |
-| Laser arm USB unplugged | `docker exec twin-devices-1 pkill -f '^socat TCP-LISTEN:7001'` | App logs "arm offline"; horn and strobe still fire |
+| Laser arm USB unplugged | `docker exec twin-devices-1 pkill -f TCP-LISTEN:7001` | App logs "arm offline"; horn and strobe still fire |
 | Orin software hangs | `docker pause twin-orin-1` | Laser off and arm parked within 2 s (watchdog) |
 | Power cut and restore | `docker kill twin-orin-1 && docker start twin-orin-1` | Back to Monitoring within 60 s with the same zones |
 
@@ -85,6 +85,8 @@ The only ports published on the host are **127.0.0.1:8080**, the dashboard, and 
 ```bash
 WAN=$(docker exec twin-orin-1 sh -c "ip -o -4 addr | awk '/172\.30\.4\./{print \$2}'")
 ```
+
+Run the commands as shown, not inside `sh -c`: there the `pkill` pattern also matches the shell, and pkill kills its own shell.
 
 ## Tools
 
@@ -116,14 +118,15 @@ Trial keys:
 
 ```
 compose.yaml   site.yaml            # stack; pit, camera pose, arm, fitted products
+share.sh                            # remote access to the dashboard (devtunnel)
 app/           the Orin app: alarm.py, links.py, detect.py, track.py, health.py, horn.py, main.py, config.yaml
-world/         world.py (renderer), camera.py, scene.py (workers), weather.py (16 presets), controls.py, stream.py
+world/         entrypoint.sh (renderer | ffmpeg), world.py (renderer), camera.py, scene.py (workers), weather.py (16 presets), controls.py, stream.py
 devices/       arm_emulator.py, relay_emulator.py, power_model.py, vserial.py
 orin/          Dockerfile (fast and JetPack flavours), entrypoint.sh, horn_monitor.py
 dashboard/     server.py, live.py, faults.py, static/ (three.js and hls.js vendored)
 catalog/       one folder per category, _schema.yaml plus product files; effects.py
 tools/         trial.py, compare.py, evaluate.py, calibrate.py
-tests/         smoke*.py (quick checks), test_stack.py (full stack), test_quick.py (pytest wrapper)
+tests/         smoke*.py (quick checks), test_compose.py (static), test_stack.py (full stack), test_quick.py (pytest wrapper)
 ```
 
 ## Deviations from the guide
@@ -135,8 +138,9 @@ The guide's "Source files" tab was not available, so every module was written fr
 - **Camera on two networks.** The camera also joins `sim_ctrl`, so the dashboard can serve its HLS stream. The world feeds the camera over `sim_ctrl` too, so the "camera cable" fault cuts only the Orin's view.
 - **Live weather and scenario switching.** These go over the world's control port instead of restarting the world container.
 - **Calibration service.** A one-shot `calib` service writes the homography to the Orin's volume.
-- **PulseAudio.** The guide's `pulseaudio --start` refuses to run as root, so the sandbox runs PulseAudio with an explicit null sink and socket. The `pulseaudio` package was also added; `pulseaudio-utils` alone has no daemon.
-- **Anchored `pkill` pattern.** The arm-USB fault anchors its pattern (`^socat TCP-LISTEN:7001`). The guide's pattern also matches the devices container's PID 1, and inside `sh -c` it matches the shell itself.
-- **Socat retry loops.** The sandbox wraps `socat` in retry loops so a re-plugged cable comes back.
+- **World pipeline in a script.** The guide's folded `command:` keeps its line breaks, so ffmpeg runs without its encoder and output options and no stream is published. The renderer-to-ffmpeg pipeline is in `world/entrypoint.sh` instead.
+- **Fixed addresses outside the dynamic range.** Without an `ip_range`, the world took 192.168.10.2, the Orin's address. Dynamic addresses now come from the top half of each subnet.
 - **Video encoding.** The world's ffmpeg adds `-pix_fmt yuv420p`, which browsers need to decode H.264.
+- **PulseAudio.** The `pulseaudio` daemon package is added (the guide installs only `pulseaudio-utils`). The entrypoint also clears PulseAudio's state left in `/tmp` before the guide's start line. Without that, `pulseaudio --start` starts nothing after a power cut and the horn stays silent.
+- **Socat retry loops.** The sandbox wraps `socat` in retry loops so a re-plugged cable comes back.
 - **Power-model start.** The model starts with a full battery at sunset after a clear day. This reproduces the guide's battery figures to within about 1 point.

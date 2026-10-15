@@ -25,9 +25,17 @@ The entrypoint SHALL plug in the virtual USB cables with `socat`:
 
 It SHALL re-plug each cable automatically, retrying every second, after the far end goes away. It SHALL then start PulseAudio with the `horn` sink, and finally `exec` the app with `/opt/pole/app/config.yaml`.
 
+PulseAudio SHALL start with the guide's line, `pulseaudio --start --exit-idle-time=-1 && pactl load-module module-null-sink sink_name=horn`, with two additions:
+- **The daemon package.** The image SHALL install `pulseaudio` as well as `pulseaudio-utils`, which has only the clients.
+- **Stale state cleared.** Before starting, the entrypoint SHALL remove the PulseAudio runtime state a previous run left in `/tmp`. A real boot clears it, but `docker kill` followed by `docker start` does not, and with the old pid file in place `pulseaudio --start` exits 0 without starting a daemon.
+
 #### Scenario: Cable re-plugged
 - **WHEN** the arm bridge in the devices container is killed and then restarted
 - **THEN** `/dev/ttyARM` is re-created and the app reconnects to the arm without restarting
+
+#### Scenario: Horn sink after a power cut
+- **WHEN** `docker kill twin-orin-1 && docker start twin-orin-1` runs, once or several times in a row
+- **THEN** `docker exec twin-orin-1 pactl list short sinks` shows `horn` each time
 
 ### Requirement: Two build flavours from one Dockerfile
 `orin/Dockerfile` SHALL take a `BASE` build argument:

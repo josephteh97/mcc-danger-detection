@@ -56,8 +56,8 @@ class Faults:
             self._exec("orin", f"tc qdisc replace dev {WAN} root netem delay 120ms 40ms loss 5%")
         elif name == "4g_outage":
             self._exec("orin", f"tc qdisc replace dev {WAN} root netem loss 100%")
-        elif name == "arm_usb":            # anchored: an unanchored pattern also matches PID 1's command line
-            res = self.container("devices").exec_run(["pkill", "-f", "^socat TCP-LISTEN:7001"])
+        elif name == "arm_usb":            # the guide's command, run directly: no shell of ours to match
+            res = self.container("devices").exec_run(["pkill", "-f", "TCP-LISTEN:7001"])
             if res.exit_code not in (0, 1):
                 raise FaultError(f"devices: pkill exited {res.exit_code}")
         elif name == "orin_hang":
@@ -83,7 +83,7 @@ class Faults:
                 net.connect(f"{PROJECT}-camera-1", ipv4_address="192.168.10.20")
         elif name in ("4g_weak", "4g_outage"):
             self._exec("orin", f"tc qdisc del dev {WAN} root 2>/dev/null || true")
-        elif name == "arm_usb":            # anchored so neither PID 1 nor this shell counts as the listener
+        elif name == "arm_usb":            # anchored: unanchored, pgrep would match this shell's own command line
             self._exec("devices", f"pgrep -f '^socat TCP-LISTEN:7001' >/dev/null || exec {ARM_BRIDGE}", detach=True)
         elif name == "orin_hang":
             c = self.container("orin")
