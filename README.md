@@ -88,6 +88,59 @@ WAN=$(docker exec twin-orin-1 sh -c "ip -o -4 addr | awk '/172\.30\.4\./{print \
 
 Run the commands as shown, not inside `sh -c`: there the `pkill` pattern also matches the shell, and pkill kills its own shell.
 
+## Remote access (`share.sh`)
+
+`share.sh` shares the dashboard with people on other machines through a Microsoft Dev Tunnel.
+- **One port.** Only port 8080 goes on the tunnel. MQTT, RTSP, HLS, the serial bridges, truth (9100) and the trial control port 9200 never do.
+- **Through the dashboard.** Remote viewers drive the worker and inject faults with the dashboard's controls.
+- **Browser video.** Viewers watch the camera through the dashboard's own browser stream (`/video/`, HLS), not raw RTSP.
+
+**Every viewer must sign in.** The dashboard can inject faults, move workers and, through the Docker socket, control this host, so the tunnel is never anonymous:
+- `share.sh` refuses `--allow-anonymous`.
+- `start` checks that an anonymous request is turned away, and takes the tunnel down again if one gets through.
+- No extra password is added, because the tunnel service itself enforces sign-in.
+
+### One-time setup
+
+```bash
+curl -sL https://aka.ms/DevTunnelCliInstall | bash      # installs devtunnel (or put the binary on PATH)
+devtunnel user login -g                                  # GitHub; add -d to get a device code instead
+```
+
+A GitHub login does not last long: the one on this host expired overnight. When the login has expired, `share.sh` says so and prints the login command.
+
+### Share, check, stop
+
+```bash
+docker compose up -d --build     # the dashboard must answer on 127.0.0.1:8080
+./share.sh start                 # prints the https://…devtunnels.ms URL to open on the other machine
+./share.sh status                # URL, ports (8080 only), access rules, sign-in and video checks
+./share.sh stop                  # stops hosting and deletes the tunnel; the URL stops working
+```
+
+| `start` option | Who can sign in |
+|---|---|
+| (none) | you, and GitHub accounts with access to this clone's `origin` repository (`josephteh97/mcc-danger-detection`). Add viewers as repository collaborators. |
+| `--repo owner/repo` | GitHub accounts with access to that repository instead |
+| `--org <github-org>` | members of that GitHub organization (repeatable) |
+| `--tenant` | accounts in your Microsoft Entra tenant (needs an Entra login) |
+| `--owner-only` | only you |
+| `--expires 8h` | the access rules and the tunnel expire after that time (1h to 30d); without it they last until `stop` |
+
+The dashboard stays published on `127.0.0.1:8080` only. The tunnel connects to it locally, and nobody on your network can reach it without signing in. If `DASHBOARD_BIND` also puts the dashboard on another address, `share.sh` warns about it.
+
+`.share/` (git-ignored) holds the tunnel ID, the URL, the host's process ID and `host.log`.
+
+### Teardown
+
+```bash
+./share.sh stop                          # also lists twin tunnels left over from earlier runs
+devtunnel list --labels twin-dashboard   # should list nothing
+devtunnel delete <tunnel-id> -f          # for any leftover
+docker compose down                      # stop the twin
+devtunnel user logout                    # optional
+```
+
 ## Tools
 
 ```bash
