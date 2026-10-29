@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Docker-based digital twin of a danger-zone pit alarm pole (camera, Orin AI box, horn, strobe, floodlight, laser arm, solar power). The real alarm software in `app/` runs **unchanged** inside an Orin-shaped sandbox container, so passing checks here exercise the code that ships to the pole. Every other container stands in for the site, a device or a cable.
 
-The source of truth is the "Danger-Zone Pole Digital Twin: Linux Implementation Guide". Specs, design and tasks live in `openspec/changes/add-digital-twin-phase1/`; any deviation from the guide must be recorded in its `design.md` (and the README's "Deviations" list). Validation IDs V01–V34 come from the guide's test matrix; U01–U10 are extra unit checks. OpenSpec workflow skills/commands are in `.claude/` (`/opsx:propose`, `/opsx:apply`, …).
+The source of truth is the "Danger-Zone Pole Digital Twin: Linux Implementation Guide". Current specs live in `openspec/specs/`; phase 1's proposal, design and tasks are archived in `openspec/changes/archive/2026-10-29-add-digital-twin-phase1/`. Any deviation from the guide must be recorded in a `design.md` (phase 1's, or the new change's) and the README's "Deviations" list. Validation IDs V01–V34 come from the guide's test matrix; U01–U10 are extra unit checks. OpenSpec workflow skills/commands are in `.claude/` (`/opsx:propose`, `/opsx:apply`, …).
 
 ## Commands
 

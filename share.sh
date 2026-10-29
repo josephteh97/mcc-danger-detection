@@ -62,14 +62,6 @@ warn_if_lan_exposed() {     # the tunnel adds sign-in; a dashboard on 0.0.0.0 wo
          without signing in. Restart the stack without DASHBOARD_BIND to keep it on 127.0.0.1."
 }
 
-default_repo() {            # owner/repo of this clone's GitHub origin, if it has one
-  local u
-  u=$(git -C "$ROOT" remote get-url origin 2>/dev/null) || return 0
-  case "$u" in https://github.com/*|git@github.com:*) ;; *) return 0 ;; esac
-  u=${u#https://github.com/}; u=${u#git@github.com:}; u=${u%/}; u=${u%.git}
-  echo "$u"
-}
-
 # ------------------------------------------------------------------ state
 tunnel_id()  { cat "$STATE/tunnel" 2>/dev/null; }
 tunnel_url() { cat "$STATE/url" 2>/dev/null; }
@@ -135,8 +127,8 @@ show() {
   say "  Tunnel    $id (host pid $pid, log .share/host.log)"
   if logged_in; then
     say "  Ports     $(dt port list "$id" -j | json '", ".join("%s (%s)" % (p["portNumber"], p.get("protocol", "")) for p in d.get("ports", []))')"
-    say "  Access    the tunnel owner, plus:"
-    dt access list "$id" | sed 's/^/            /'
+    say "  Access"
+    dt access list "$id" | tail -n +2 | sed 's/^/            /'
   else
     say "  Ports and access rules: log in to see them (devtunnel user login -g)"
   fi
@@ -161,10 +153,11 @@ cmd_start() {
     esac
   done
   [[ -z "$expires" || "$expires" =~ ^[0-9]+[hd]$ ]] || fail "--expires takes hours or days, for example 8h or 2d"
+  # No repo rule by default: devtunnel (1.0.1972 and 1.0.2115) rejects every --repo rule with
+  # "Specify access control parameters" before contacting the service. Without options only the
+  # owner can sign in; --owner-only says so explicitly.
   if [ "$owner_only" = 1 ]; then
     [ -z "$repo" ] && [ ${#orgs[@]} = 0 ] && [ "$tenant" = 0 ] || fail "--owner-only cannot be combined with --repo, --org or --tenant"
-  elif [ -z "$repo" ]; then
-    repo=$(default_repo)
   fi
 
   need_dashboard
@@ -183,15 +176,22 @@ cmd_start() {
   fi
   rm -rf "$STATE"; mkdir -p "$STATE"
 
-  id=$(dt create --labels "$LABEL" -d "Danger-zone twin dashboard (share.sh)" ${expires:+--expiration "$expires"} -j \
-       | json 'd["tunnel"]["tunnelId"]') || fail "could not create a tunnel"
+  local out
+  out=$(dt create --labels "$LABEL" -d "Danger-zone twin dashboard (share.sh)" ${expires:+--expiration "$expires"} -j 2>&1) \
+    || fail "could not create a tunnel: $out"
+  id=$(json 'd["tunnel"]["tunnelId"]' <<<"$out" 2>/dev/null) || fail "could not create a tunnel; devtunnel said:
+$out"
   echo "$id" > "$STATE/tunnel"
-  trap 'say "Start failed; removing tunnel $id." >&2; stop_host; delete_tunnel "$id" >&2 || true; rm -rf "$STATE"' EXIT
+  # Expand $id now: the trap runs at exit, after cmd_start's locals are gone.
+  trap "say 'Start failed; removing tunnel $id.' >&2; stop_host; delete_tunnel '$id' >&2 || true; rm -rf \"\$STATE\"" EXIT
 
   dt port create "$id" -p "$PORT" --protocol http >/dev/null
   local who=("the tunnel owner (you)")
   if [ -n "$repo" ]; then
-    dt access create "$id" --repo "$repo" ${expires:+-e "$expires"} >/dev/null
+    out=$(dt access create "$id" --repo "$repo" ${expires:+-e "$expires"} 2>&1) || fail "could not add the access rule for $repo:
+$(head -3 <<<"$out")
+  devtunnel 1.0.2115 and earlier reject --repo rules ('Specify access control parameters').
+  Share without it: ./share.sh start (owner only), or add --org <github-org> / --tenant"
     who+=("GitHub accounts with access to $repo")
   fi
   for org in "${orgs[@]}"; do

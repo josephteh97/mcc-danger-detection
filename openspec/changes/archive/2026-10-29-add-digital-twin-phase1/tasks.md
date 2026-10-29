@@ -91,17 +91,17 @@
 
 ## 11. Remote access (`remote-access`, Step 3)
 
-- [ ] 11.1 `share.sh start|status|stop`:
+- [x] 11.1 `share.sh start|status|stop`:
   - checks that `devtunnel` is installed and logged in, and that `127.0.0.1:8080` answers
   - named tunnel with port 8080 only
-  - repo access rule, plus optional `--org`, `--tenant` and `--expires`
+  - owner-only by default, plus optional `--repo`, `--org`, `--tenant` and `--expires` (devtunnel rejects `--repo` rules, design D16)
   - refuses anonymous access
   - background host with its state in `.share/`
   - prints the URL
-- [ ] 11.2 `.gitignore` the `.share/` directory
-- [ ] 11.3 README "Remote access" section: one-time setup, start, status, stop, who can sign in, the loopback binding and why, and teardown with `devtunnel list` and `devtunnel delete`
-- [ ] 11.4 Update the `remote-access` spec with anything learned while implementing
-- [ ] 11.5 Verify:
+- [x] 11.2 `.gitignore` the `.share/` directory
+- [x] 11.3 README "Remote access" section: one-time setup, start, status, stop, who can sign in, the loopback binding and why, and teardown with `devtunnel list` and `devtunnel delete`
+- [x] 11.4 Update the `remote-access` spec with anything learned while implementing
+- [x] 11.5 Verify:
   - `./share.sh start` prints the URL.
   - From another machine, sign-in is required, the video plays and a trial walk-in alarms.
   - `devtunnel show` lists only port 8080.
@@ -111,4 +111,4 @@
 ## 12. Documentation and close-out
 
 - [x] 12.1 README: host setup, quick checks, compose up, dashboard, trial mode, fault table, and the deviations from the guide (pointing to `design.md`)
-- [ ] 12.2 Verify: `openspec validate add-digital-twin-phase1 --strict` passes; archive the change after Step 3 is accepted (`openspec archive add-digital-twin-phase1`)
+- [x] 12.2 Verify: `openspec validate add-digital-twin-phase1 --strict` passes; archive the change after Step 3 is accepted (`openspec archive add-digital-twin-phase1`)

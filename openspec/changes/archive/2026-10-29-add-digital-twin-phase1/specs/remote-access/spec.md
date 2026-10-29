@@ -75,12 +75,10 @@ The tunnel SHALL never allow anonymous access. A viewer SHALL sign in with a Mic
 
 The tunnel is therefore never public, so no basic-auth password is added; the tunnel service enforces sign-in.
 
-By default, `start` SHALL grant access only to:
-- the tunnel owner
-- accounts with access to the GitHub repository of this clone's `origin`, `josephteh97/mcc-danger-detection`
+By default, `start` SHALL grant access only to the tunnel owner. (A default rule for this clone's `origin` repository was planned, but `devtunnel` 1.0.1972 and 1.0.2115 reject every repository rule with "Specify access control parameters" before contacting the service.)
 
 These options SHALL change who has access, explicitly:
-- `--repo <owner/repo>` grants access to another repository's accounts instead.
+- `--repo <owner/repo>` adds accounts with access to that GitHub repository. If `devtunnel` rejects the rule, `start` SHALL delete the tunnel, exit non-zero and say how to share without it.
 - `--org <github-org>`, which can be repeated, adds members of a GitHub organization.
 - `--tenant` adds the owner's Entra tenant.
 - `--owner-only` grants no one but the owner, and cannot be combined with the other options.
@@ -94,7 +92,7 @@ These options SHALL change who has access, explicitly:
 - **THEN** they are sent to the Dev Tunnels sign-in page and do not reach the dashboard
 
 #### Scenario: Allowed viewer
-- **WHEN** a viewer signs in with a GitHub account that has access to the repository
+- **WHEN** a viewer signs in with an account the access rules allow (by default, the tunnel owner's)
 - **THEN** the dashboard loads
 
 #### Scenario: Anonymous refused

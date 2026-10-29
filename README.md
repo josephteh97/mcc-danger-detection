@@ -7,7 +7,7 @@ This digital twin of the danger-zone pit alarm pole runs as Docker containers on
 
 The real alarm software in `app/` runs inside the Orin sandbox unchanged, so a check that passes here exercises the code that ships to the pole.
 
-The source of truth is the "Danger-Zone Pole Digital Twin: Linux Implementation Guide". The OpenSpec specs and the change proposal are in `openspec/changes/add-digital-twin-phase1/`. Deviations from the guide are listed at the end of this file and in `design.md`.
+The source of truth is the "Danger-Zone Pole Digital Twin: Linux Implementation Guide". The OpenSpec specs are in `openspec/specs/`; the archived phase-1 proposal, design and tasks are in `openspec/changes/archive/2026-10-29-add-digital-twin-phase1/`. Deviations from the guide are listed at the end of this file and in `design.md`.
 
 ```
 camera (MediaMTX) ─ RTSP on poe_lan ─► orin (app) ─ 4G (wan_4g) ─► cloud (Mosquitto)
@@ -120,8 +120,8 @@ docker compose up -d --build     # the dashboard must answer on 127.0.0.1:8080
 
 | `start` option | Who can sign in |
 |---|---|
-| (none) | you, and GitHub accounts with access to this clone's `origin` repository (`josephteh97/mcc-danger-detection`). Add viewers as repository collaborators. |
-| `--repo owner/repo` | GitHub accounts with access to that repository instead |
+| (none) | only you (sign in with the GitHub account `devtunnel` is logged in as) |
+| `--repo owner/repo` | GitHub accounts with access to that repository. Not usable yet: `devtunnel` 1.0.2115 and earlier reject every repository rule with "Specify access control parameters", and `start` then deletes the tunnel. |
 | `--org <github-org>` | members of that GitHub organization (repeatable) |
 | `--tenant` | accounts in your Microsoft Entra tenant (needs an Entra login) |
 | `--owner-only` | only you |
@@ -184,7 +184,7 @@ tests/         smoke*.py (quick checks), test_compose.py (static), test_stack.py
 
 ## Deviations from the guide
 
-The guide's "Source files" tab was not available, so every module was written from the guide's text and tables. All of these deviations are recorded in `openspec/changes/add-digital-twin-phase1/design.md`.
+The guide's "Source files" tab was not available, so every module was written from the guide's text and tables. All of these deviations are recorded in `openspec/changes/archive/2026-10-29-add-digital-twin-phase1/design.md`.
 
 - **37 quick checks.** These are the 27 V-rows the guide marks Pass or Fail before the full stack, plus 10 named unit checks (U01-U10).
 - **Loopback-only ports.** The dashboard is published on 127.0.0.1 because it holds the Docker socket. The control port 9200 is also loopback only; remote people drive the worker through the dashboard.

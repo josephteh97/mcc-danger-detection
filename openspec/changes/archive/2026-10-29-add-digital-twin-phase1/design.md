@@ -195,8 +195,10 @@ The world always renders 1280×720, a scaled-down 8 MP stream. A catalogue camer
 ### D16. Remote access with Microsoft Dev Tunnels, sign-in enforced by the tunnel service
 This was the user's choice. `share.sh` uses `devtunnel` and does the following:
 1. Creates a named tunnel with port 8080 only.
-2. Adds an access rule for the GitHub repository, so collaborators of the private repo can sign in.
-3. Optionally adds org or tenant rules, with an expiry.
+2. Allows only the tunnel owner by default.
+3. Optionally adds repository, org or tenant rules, with an expiry.
+
+A default rule for the GitHub repository (so collaborators of the private repo could sign in) was planned, but `devtunnel` 1.0.1972 and 1.0.2115 reject every `--repo` rule with "Specify access control parameters" in client-side validation, on both `create` and `access create`. `--repo` is kept for a CLI that accepts it; when it fails, `start` deletes the tunnel rather than leave it orphaned.
 4. Hosts the tunnel in the background, logging to `.share/`.
 
 The tunnel is never anonymous. Basic auth is not added, because the requirement asks for basic auth only on a *public* tunnel, and a tunnel that requires sign-in is not public.
