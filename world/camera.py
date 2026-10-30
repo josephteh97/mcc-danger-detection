@@ -110,3 +110,51 @@ def image_to_ground_homography(camera, ground_points):
         raise ValueError("a calibration point is outside the camera image")
     H, _ = cv2.findHomography(pix.astype(np.float32), g.astype(np.float32), 0)
     return H, pix
+
+
+class Lens:
+    """The real camera's barrel distortion for rendering: a monotone radial lens
+    r = fp·atan(k·t)/k (t: tangent of the ray's angle off the axis) with the datasheet's centre
+    ratio fp (the DORI figure, scaled to the stream) and k set so the edge of the field of view
+    lands on the frame edge. The coverage maths keeps the datasheet's D (catalog/effects.py): its
+    cubic folds over before the edge of a 102° lens, so it cannot render a whole frame."""
+
+    def __init__(self, cam, fp_native, native_w):
+        self.cam = cam
+        self.fp = fp_native * cam.width / native_w
+        t, target = math.tan(math.radians(cam.hfov_deg) / 2), cam.width / 2
+        if self.fp * t <= target + 1e-6:               # no barrel to model
+            self.k = 1e-6
+        else:
+            lo, hi = 1e-6, 50.0                         # fp·atan(k t)/k falls as k grows
+            for _ in range(100):
+                mid = (lo + hi) / 2
+                lo, hi = (mid, hi) if self.fp * math.atan(mid * t) / mid > target else (lo, mid)
+            self.k = (lo + hi) / 2
+        self.params = {"cx": cam.cx, "cy": cam.cy, "fx": cam.fx, "fp": self.fp, "k": self.k}
+
+    @classmethod
+    def from_site(cls, cam, camera):
+        if not camera.get("dori_fp_px"):
+            return None
+        return cls(cam, camera["dori_fp_px"], camera["resolution_px"][0])
+
+    def distort(self, uv):
+        """Pinhole pixels (N, 2) -> pixels in the distorted image."""
+        uv = np.atleast_2d(np.asarray(uv, dtype=np.float64))
+        d = uv - [self.cam.cx, self.cam.cy]
+        r = np.hypot(d[:, 0], d[:, 1])
+        t = r / self.cam.fx
+        rd = self.fp * np.arctan(self.k * t) / self.k
+        s = np.where(r > 1e-9, rd / np.maximum(r, 1e-9), self.fp / self.cam.fx)
+        return d * s[:, None] + [self.cam.cx, self.cam.cy]
+
+    def maps(self):
+        """cv2.remap maps: for each distorted pixel, where to sample the pinhole image."""
+        h, w = self.cam.height, self.cam.width
+        vv, uu = np.mgrid[0:h, 0:w].astype(np.float64)
+        dx, dy = uu - self.cam.cx, vv - self.cam.cy
+        r = np.hypot(dx, dy)
+        a = np.minimum(self.k * r / self.fp, math.pi / 2 - 1e-3)
+        s = np.where(r > 1e-9, self.cam.fx * np.tan(a) / self.k / np.maximum(r, 1e-9), self.cam.fx / self.fp)
+        return (self.cam.cx + dx * s).astype(np.float32), (self.cam.cy + dy * s).astype(np.float32)

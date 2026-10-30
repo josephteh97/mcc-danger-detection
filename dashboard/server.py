@@ -28,12 +28,43 @@ CAMERA_HLS = os.environ.get("CAMERA_HLS", "http://172.29.10.20:8888")
 SITE = catalog.load_site()
 SCENARIO_LABELS = {"single_walk_in": "single walk-in", "two_workers": "two workers at once",
                    "passer_by_ring_edge": "passer-by on the ring edge", "stops_1_6m": "worker stops 1.6 m away",
-                   "hidden_behind_another": "worker hidden behind another", "demo_loop": "demo loop", "idle": "empty site"}
+                   "hidden_behind_another": "worker hidden behind another",
+                   "squat_far_edge": "worker squats at the far edge", "demo_loop": "demo loop", "idle": "empty site"}
 
 live = Live(SITE, logs=LOGS, broker=os.environ.get("MQTT_BROKER", "172.30.4.10"),
             pole_id=os.environ.get("POLE_ID", "07"), world_control=os.environ.get("WORLD_CONTROL", "world:9200"))
 faults = Faults()
 http = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
+
+
+def orin_alive():
+    """One watchdog ping: the AI box is running (not hung) and its app wrote status in the last 10 s."""
+    try:
+        c = faults.container("orin")
+        if c.status != "running":
+            return False
+        res = c.exec_run(["sh", "-c", "echo $(( $(date +%s) - $(stat -c %Y /data/status.json) ))"])
+        return res.exit_code == 0 and int(res.output.decode().strip() or 99) < 10
+    except Exception:              # paused (exec refused), missing, or the Docker API is down
+        return False
+
+
+async def poe_watchdog():
+    """v11: the switch pings the AI box every 10 s and power-cycles port 4 after 3 misses."""
+    from devices.poe_watchdog import Watchdog
+    dog = Watchdog()
+    dog.step(time.monotonic(), True)
+    await asyncio.sleep(60)                       # boot grace after the stack starts
+    while True:
+        await asyncio.sleep(dog.interval_s)
+        if "switch_hang" in faults.active:        # the switch itself is hung: no watchdog
+            continue
+        if dog.step(time.monotonic(), await asyncio.to_thread(orin_alive)):
+            live.on_event({"pole": live.pole, "ts": round(time.time(), 3), "kind": "health",
+                           "what": "watchdog_power_cycle", "detail": "PoE watchdog power-cycled port 4 (AI box)"})
+            await asyncio.to_thread(faults.inject, "power_cut")
+            faults.active.pop("orin_hang", None)
+            faults.active.pop("power_cut", None)
 
 
 @asynccontextmanager
@@ -43,8 +74,11 @@ async def lifespan(_app):
     await live.run_truth()
     tails = asyncio.create_task(live.run_tails())
     live.start_mqtt()
+    dog = asyncio.create_task(poe_watchdog()) if SITE["profile"] == "v11" else None
     yield
     tails.cancel()
+    if dog:
+        dog.cancel()
 
 
 app = FastAPI(title="Danger-zone pole twin", lifespan=lifespan)
@@ -111,7 +145,8 @@ def site():
             d = cam.rays(np.array([float(u)]), np.array([float(v)]))[0]
             g = (cam.pos[0] + 40 * d[0], cam.pos[1] + 40 * d[1])
         corners.append(g)
-    return {"pit": SITE["site"]["pit"], "boundary": SITE["site"]["boundary"],
+    return {"profile": SITE["profile"], "render": SITE["camera"].get("render", {}),
+            "pit": SITE["site"]["pit"], "boundary": SITE["site"]["boundary"],
             "rings": {str(b): fx.ring_points(SITE, b, 120).round(3).tolist()
                       for b in (SITE["zones"]["alarm_buffer_m"], SITE["zones"]["warn_buffer_m"])},
             "camera": {"pos": cam.pos.tolist(), "footprint": corners}, "arm": SITE["arm"],
@@ -177,7 +212,15 @@ async def fault_restore(name: str):
 
 @app.get("/api/faults")
 async def fault_status():
-    return await asyncio.to_thread(faults.status)
+    return {**await asyncio.to_thread(faults.status), "power_cut_plan": faults.power_cut_plan}
+
+
+@app.post("/api/v11/router/switch_restart")
+async def router_switch_restart():
+    """The 4G router's digital output driving the switch-restart relay (called by the router)."""
+    if SITE["profile"] != "v11":
+        raise HTTPException(404, "the router-driven switch restart exists in the v11 profile only")
+    return await asyncio.to_thread(faults.switch_restart)
 
 
 # ------------------------------------------------------------------ products

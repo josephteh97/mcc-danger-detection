@@ -18,6 +18,22 @@ def foot_pixel(box):
     return (x0 + x1) / 2.0, float(y1)
 
 
+def undistort_pixel(u, v, lens=None):
+    """A pixel of the real (barrel-distorted) camera image -> the matching pinhole pixel, which is
+    what the calibration homography maps. lens: {"cx", "cy", "fx", "fp", "k"} for the radial lens
+    r = fp·atan(k·t)/k (t: tangent of the ray's angle off the axis; fx: the pinhole's focal length,
+    all in stream pixels). None, as in phase 1, leaves the pixel unchanged."""
+    if not lens:
+        return u, v
+    dx, dy = u - lens["cx"], v - lens["cy"]
+    r = math.hypot(dx, dy)
+    if r < 1e-9:
+        return u, v
+    a = min(lens["k"] * r / lens["fp"], math.pi / 2 - 1e-6)
+    s = lens["fx"] * math.tan(a) / lens["k"] / r
+    return lens["cx"] + dx * s, lens["cy"] + dy * s
+
+
 def ground_from_image(H, u, v):
     """Map an image pixel to ground metres with the image-to-ground homography H (3x3)."""
     x = H[0][0] * u + H[0][1] * v + H[0][2]

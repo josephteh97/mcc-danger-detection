@@ -10,7 +10,7 @@ import numpy as np
 from catalog.effects import ring_points
 from world import weather as wx
 
-HELP = "arrows/WASD walk  Shift run  N add  Tab switch  R reset  E weather  Z rings  P pause  Q quit"
+HELP = "arrows/WASD walk  Shift run  C squat  K kneel  N add  Tab switch  R reset  E weather  Z rings  P pause  Q quit"
 
 
 # --------------------------------------------------------------------------- drawing
@@ -100,6 +100,8 @@ def run_window(session):
                     rings = not rings
                 elif k == pygame.K_p:
                     paused = not paused
+                elif k in (pygame.K_c, pygame.K_k):
+                    session.posture("squat" if k == pygame.K_c else "kneel")
         pressed = pygame.key.get_pressed()
         keys = {name for name, codes in (("up", (pygame.K_UP, pygame.K_w)), ("down", (pygame.K_DOWN, pygame.K_s)),
                                          ("left", (pygame.K_LEFT, pygame.K_a)), ("right", (pygame.K_RIGHT, pygame.K_d)))
@@ -143,6 +145,8 @@ def _run_window_cv(session):
                 rings = not rings
             elif low == ord("p"):
                 paused = not paused
+            elif low in (ord("c"), ord("k")):
+                session.posture("squat" if low == ord("c") else "kneel")
             keys = {name for name, until in held.items() if until > t0}
             run = any(chr(c).isupper() for c in (k,) if 65 <= c <= 90)
             if not paused:
@@ -189,6 +193,8 @@ def run_sender(addr):
                 cmd = {pygame.K_n: "add_worker", pygame.K_TAB: "switch", pygame.K_r: "reset"}.get(ev.key)
                 if cmd:
                     send(addr, {"cmd": cmd})
+                elif ev.key in (pygame.K_c, pygame.K_k):
+                    send(addr, {"cmd": "posture", "posture": "squat" if ev.key == pygame.K_c else "kneel"})
         pressed = pygame.key.get_pressed()
         keys = [name for name, codes in (("up", (pygame.K_UP, pygame.K_w)), ("down", (pygame.K_DOWN, pygame.K_s)),
                                          ("left", (pygame.K_LEFT, pygame.K_a)), ("right", (pygame.K_RIGHT, pygame.K_d)))

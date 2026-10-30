@@ -51,7 +51,7 @@
 
 ## 8. Remote access
 
-- [ ] 8.1 Check `share.sh` already matches the updated spec (options refused while sharing, lock, failed-start clean-up); add tests for the three new scenarios
+- [x] 8.1 Check `share.sh` already matches the updated spec (options refused while sharing, lock, failed-start clean-up); add tests for the three new scenarios
 - [ ] 8.2 Add a Tailscale-node emulator on the router (`wan_4g` + `poe_lan`, subnet route `192.168.10.0/24`) and engineer and superior client containers
 - [ ] 8.3 Add the cloud relay emulator that the AI box connects out to; no inbound port on the router's 4G side
 - [ ] 8.4 Verify: engineer SSH to the AI box succeeds, superior cannot reach `poe_lan`, the 4G scan finds no open port, and remote switch restart works during a switch hang
@@ -59,7 +59,7 @@
 ## 9. Rendering
 
 - [ ] 9.1 World: 1600×1200 v11 frames, distortion remap, ground texture, postured shaded workers with shadows, IR night and noise; keep 15 fps on one core
-- [ ] 9.2 Postures in the world and oracle boxes; squatting scenario script
+- [x] 9.2 Postures in the world and oracle boxes; squatting scenario script
 - [ ] 9.3 Dashboard: vendor and pin new three.js add-ons
 - [ ] 9.4 Dashboard: PBR, tone mapping, sky and sun, soft shadows, rain and haze, floodlight cone
 - [ ] 9.5 Dashboard: rigged workers, wheeled stand and solar skid, true frustum, laser glow
@@ -68,8 +68,8 @@
 
 ## 10. Trial mode
 
-- [ ] 10.1 C squat and K kneel keys; no movement while down
-- [ ] 10.2 Verify: `python3 tests/smoke_trial.py` (V29–V34, U10) still passes and the squat scenario fires the alarm
+- [x] 10.1 C squat and K kneel keys; no movement while down
+- [x] 10.2 Verify: `python3 tests/smoke_trial.py` (V29–V34, U10) still passes and the squat scenario fires the alarm
 
 ## 11. Validation
 

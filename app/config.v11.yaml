@@ -8,6 +8,7 @@ camera:
   homography: /data/calib/homography.npy
   size: [1600, 1200]                                           # 4:3 stream from the 12 MP camera
   lost_after_s: 3.0
+  lens: { cx: 800.0, cy: 600.0, fx: 647.83, fp: 1136.0, k: 1.5450 }   # barrel distortion, from lens calibration
 alarm: { alarm_buffer_m: 1.5, warn_buffer_m: 3.0, dwell_s: 1.0, escalate_s: 3.0, clear_s: 2.0 }
 arm: { xy: [0.0, -9.5], heading_deg: 90, pivot_h_m: 1.1, tilt_stops_deg: [5, 45] }
 devices:                                                       # TCP to the laser controller on poe_lan

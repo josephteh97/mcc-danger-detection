@@ -26,6 +26,15 @@ fi
 rm -rf /tmp/pulse-* "$HOME"/.config/pulse/*-runtime
 pulseaudio --start --exit-idle-time=-1 && pactl load-module module-null-sink sink_name=horn
 
+if [ "$PROFILE" = "v11" ]; then
+  # Engineers reach the box over SSH through the router's Tailscale node: key only, LAN address
+  # only (nothing listens on the 4G side). The key comes from the engineer emulator's volume.
+  mkdir -p /run/sshd && ssh-keygen -A >/dev/null 2>&1
+  /usr/sbin/sshd -o ListenAddress=192.168.10.2 -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no \
+    -o PermitRootLogin=prohibit-password -o AuthorizedKeysFile=/keys/engineer.pub 2>/dev/null || true
+  python3 /opt/pole/twin/relay_push.py >/dev/null 2>&1 &     # live view, outbound to the cloud relay
+fi
+
 if [ "${TWIN_HORN_MONITOR:-0}" = "1" ]; then
   python3 /opt/pole/twin/horn_monitor.py >> /data/horn.log 2>/dev/null &
 fi

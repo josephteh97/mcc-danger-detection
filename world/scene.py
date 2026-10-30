@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 WALK_MS, RUN_MS = 1.4, 3.0
+POSTURE_H = {"walk": 1.78, "stand": 1.78, "squat": 1.0, "kneel": 1.2}   # height in metres
+DOWN = ("squat", "kneel")                  # postures that do not move until the worker stands up
 KEY_TIMEOUT_S = 0.5
 BODY_RADIUS_M = 0.28          # footprint radius used to keep workers inside the hoarding
 
@@ -27,14 +29,25 @@ class Worker:
     wait_until: float = 0.0
     gone: bool = False
     heading: float = 0.0
+    down: str = None                           # "squat" or "kneel" while down, else None
+    moving: bool = False
 
     def active(self, t):
         return not self.gone and t >= self.start_at
 
+    @property
+    def posture(self):
+        return self.down or ("walk" if self.moving else "stand")
 
-def _walk(pts, wait=None):
-    wait = wait or {}
-    return [(x, y, wait.get(i, 0.0)) for i, (x, y) in enumerate(pts)]
+    @property
+    def height_m(self):
+        return POSTURE_H[self.posture]
+
+
+def _walk(pts, wait=None, posture=None):
+    """Waypoints [(x, y, wait_s, posture while waiting)]."""
+    wait, posture = wait or {}, posture or {}
+    return [(x, y, wait.get(i, 0.0), posture.get(i)) for i, (x, y) in enumerate(pts)]
 
 
 # Scripted scenarios. Pit spans x -1.2..1.2, y -0.8..0.8; the camera stands at (-6.9, 4.0)
@@ -54,6 +67,11 @@ SCENARIOS = {
         dict(start=(6.0, -6.0), path=_walk([(0.6, -1.6), (6.0, -6.0), (10.0, -8.2)], {0: 10.0})),
         dict(start=(6.5, -5.2), start_at=1.0,
              path=_walk([(1.32, -2.14), (6.5, -5.2), (10.0, -7.0)], {0: 8.0}))],
+    # A worker who squats at the far edge of the warning ring (north of the pit, the far side
+    # from the v11 stand), then steps into the 1.5 m zone and squats again until the alarm.
+    "squat_far_edge": lambda: [
+        dict(start=(6.0, 6.0), path=_walk([(0.0, 3.6), (0.0, 2.1), (6.0, 6.0), (10.0, 8.2)],
+                                          {0: 4.0, 1: 8.0}, {0: "squat", 1: "squat"}))],
 }
 SCENARIO_NAMES = list(SCENARIOS) + ["demo_loop", "idle"]
 
@@ -104,6 +122,18 @@ class Scene:
         self.active_controlled = ids[(i + 1) % len(ids)]
         return self.active_controlled
 
+    def toggle_posture(self, posture, worker_id=None):
+        """C (squat) or K (kneel): go down, or stand up if already in that posture."""
+        if posture not in DOWN:
+            raise ValueError(f"unknown posture {posture!r} (squat or kneel)")
+        wid = worker_id if worker_id is not None else self.active_controlled
+        for w in self.workers:
+            if w.id == wid and w.controlled:
+                w.down = None if w.down == posture else posture
+                w.moving = False
+                return w
+        return None
+
     def set_keys(self, keys, run=False, worker_id=None):
         wid = worker_id if worker_id is not None else self.active_controlled
         if wid is None:
@@ -146,8 +176,10 @@ class Scene:
         k = w.keys
         vy = (1 if "up" in k else 0) - (1 if "down" in k else 0)
         vx = (1 if "right" in k else 0) - (1 if "left" in k else 0)
-        if vx == 0 and vy == 0:
+        w.moving = False
+        if (vx == 0 and vy == 0) or w.down:            # squatting or kneeling: no movement
             return
+        w.moving = True
         v = vy * np.asarray(up_vec) + vx * np.asarray(right_vec)
         v = v / np.linalg.norm(v)
         speed = RUN_MS if w.run else WALK_MS
@@ -156,9 +188,11 @@ class Scene:
 
     def _step_scripted(self, w, dt):
         if self.t < w.wait_until:
+            w.moving = False
             return
+        w.down, w.moving = None, True
         while dt > 0 and w.path:
-            tx, ty, wait = w.path[0]
+            tx, ty, wait, *posture = w.path[0]
             dx, dy = tx - w.x, ty - w.y
             dist = math.hypot(dx, dy)
             step = w.speed * dt
@@ -168,6 +202,8 @@ class Scene:
                 w.path.pop(0)
                 if wait > 0:
                     w.wait_until = self.t + wait
+                    w.down = posture[0] if posture and posture[0] in DOWN else None
+                    w.moving = False
                     return
             else:
                 w.heading = math.atan2(dy, dx)
@@ -185,7 +221,7 @@ class Scene:
                  (self.rng.uniform(x0, x1), y0), (self.rng.uniform(x0, x1), y1)][side]
             b = [(x1, self.rng.uniform(y0, y1)), (x0, self.rng.uniform(y0, y1)),
                  (self.rng.uniform(x0, x1), y1), (self.rng.uniform(x0, x1), y0)][side]
-            w = Worker(self._new_id(), *a, path=[(b[0], b[1], 0.0)], npc=True,
+            w = Worker(self._new_id(), *a, path=[(b[0], b[1], 0.0, None)], npc=True,
                        speed=float(self.rng.uniform(1.0, 1.6)), start_at=self.t + float(self.rng.uniform(0, 8)))
             self.workers.append(w)
             alive += 1

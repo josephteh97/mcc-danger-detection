@@ -124,12 +124,31 @@ def make_drop_mask(h, w, coverage, rng):
     return cv2.GaussianBlur(mask, (5, 5), 1.5)
 
 
+def _sparse(mask, cut=0.01):
+    """Flat indices and weights of a mask's non-zero pixels (cached on the mask's identity)."""
+    key = id(mask)
+    hit = _SPARSE.get(key)
+    if hit is None or hit[0] is not mask:
+        idx = np.flatnonzero(mask > cut)
+        hit = _SPARSE[key] = (mask, idx, mask.ravel()[idx][:, None])
+    return hit[1], hit[2]
+
+
+_SPARSE = {}
+
+
 def apply_drops(img, mask):
+    """Drops blur and brighten what is behind them; only the covered pixels are touched."""
     if not mask.any():
         return img
-    blurred = cv2.GaussianBlur(img, (0, 0), 6)
-    m = mask[..., None]
-    return img * (1 - m) + (blurred * 0.8 + 35) * m
+    idx, m = _sparse(mask)
+    h, w = img.shape[:2]
+    small = cv2.resize(img, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
+    blurred = cv2.resize(cv2.GaussianBlur(small, (0, 0), 1.5), (w, h), interpolation=cv2.INTER_LINEAR)
+    flat, bl = img.reshape(-1, 3), blurred.reshape(-1, 3)
+    out = img.copy()
+    out.reshape(-1, 3)[idx] = flat[idx] * (1 - m) + (bl[idx] * 0.8 + 35) * m
+    return out
 
 
 def make_rain_layers(h, w, preset, rng, count=6):
@@ -154,15 +173,20 @@ def apply_rain(img, layer, preset):
     if layer is None:
         return img
     level = 150.0 if preset.night else 215.0
-    a = layer[..., None]
-    return img * (1 - a) + level * a
+    idx, a = _sparse(layer)
+    out = img.copy()
+    flat = out.reshape(-1, 3)
+    flat[idx] = flat[idx] * (1 - a) + level * a
+    return out
 
 
 def apply_window_fog(img, strength):
     """Condensation on the window: blurs and whitens the whole image."""
     if strength <= 0:
         return img
-    blurred = cv2.GaussianBlur(img, (0, 0), 3 + 12 * strength)
+    h, w = img.shape[:2]                            # a wide blur: done at quarter size
+    small = cv2.resize(img, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
+    blurred = cv2.resize(cv2.GaussianBlur(small, (0, 0), (3 + 12 * strength) / 4), (w, h), interpolation=cv2.INTER_LINEAR)
     return blurred * (1 - strength) + 235.0 * strength
 
 

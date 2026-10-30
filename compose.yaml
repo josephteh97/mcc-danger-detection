@@ -48,7 +48,7 @@ services:
     mem_limit: 8g
     cap_add: [NET_ADMIN]       # lets tests shape the 4G link with tc netem
     environment: [TWIN_HORN_MONITOR=1, TZ=Asia/Singapore, "TWIN_PROFILE=${TWIN_PROFILE:-v11}"]
-    volumes: [orin_data:/data]
+    volumes: [orin_data:/data, "eng_keys:/keys:ro"]   # /keys: the engineer's SSH public key (v11)
     networks:
       poe_lan: { ipv4_address: 192.168.10.2 }
       wan_4g: { ipv4_address: 172.30.4.2 }
@@ -58,6 +58,43 @@ services:
       cloud: { condition: service_started }
       camera: { condition: service_started }
     restart: "no"              # a power cut is 'docker kill' + 'docker start'
+
+  # ---- v11 remote management, emulated (design D12): no real Tailscale, every network internal
+  router:                      # the 4G router: own PoE injector, Tailscale node, CGNAT on 4G
+    build: { context: ., dockerfile: remote/Dockerfile }
+    command: python3 router.py
+    cap_add: [NET_ADMIN]
+    sysctls: { net.ipv4.ip_forward: 1 }
+    environment: [TAILNET_ACL=100.64.0.10]          # the tailnet's access list: the engineer only
+    networks:
+      wan_4g: { ipv4_address: 172.30.4.3 }
+      poe_lan: { ipv4_address: 192.168.10.1 }
+      tailnet: { ipv4_address: 100.64.0.1 }
+      sim_ctrl: { ipv4_address: 172.29.10.6 }        # the digital-output wire to the switch-restart relay
+    depends_on: [cloud]
+    restart: unless-stopped
+
+  engineer:                    # a maintenance engineer's laptop in the tailnet
+    build: { context: ., dockerfile: remote/Dockerfile }
+    command: sh /remote/engineer.sh
+    cap_add: [NET_ADMIN]
+    volumes: [eng_keys:/keys]
+    networks: { tailnet: { ipv4_address: 100.64.0.10 } }
+    depends_on: [router]
+    restart: unless-stopped
+
+  superior:                    # the superior: sees the cloud relay only, never the pole's LAN
+    build: { context: ., dockerfile: remote/Dockerfile }
+    command: sleep infinity
+    networks: { wan_4g: { ipv4_address: 172.30.4.12 } }
+    restart: unless-stopped
+
+  relay:                       # the cloud relay the AI box connects out to (events and live view)
+    build: { context: ., dockerfile: remote/Dockerfile }
+    command: python3 relay.py
+    networks: { wan_4g: { ipv4_address: 172.30.4.11 } }
+    depends_on: [cloud]
+    restart: unless-stopped
 
   cloud:                       # stands in for the cloud endpoint
     image: eclipse-mosquitto:2.0.22
@@ -87,5 +124,6 @@ networks:                      # dynamic addresses come from the top half, fixed
   usb_bus:  { internal: true }
   wan_4g:   { internal: true, ipam: { config: [{ subnet: 172.30.4.0/24, ip_range: 172.30.4.128/25 }] } }
   sim_ctrl: { ipam: { config: [{ subnet: 172.29.10.0/24, ip_range: 172.29.10.128/25 }] } }
+  tailnet:  { internal: true, ipam: { config: [{ subnet: 100.64.0.0/24, ip_range: 100.64.0.128/25 }] } }   # v11 VPN
 
-volumes: { orin_data: {}, logs: {} }
+volumes: { orin_data: {}, logs: {}, eng_keys: {} }

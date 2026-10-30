@@ -43,6 +43,8 @@ PROJECT = os.environ.get("TWIN_PROJECT", "twin")
 class Stack:
     def __init__(self, dk, http):
         self.dk, self.http = dk, http
+        self.site = http.get(f"{DASHBOARD}/api/site").json()
+        self.profile = self.site.get("profile", "phase1")
 
     def c(self, service):
         return self.dk.containers.get(f"{PROJECT}-{service}-1")
@@ -102,7 +104,8 @@ class Stack:
 
     def quiet(self):
         """Empty site, clear weather, no faults, app back in Monitoring."""
-        for f in ("4g_weak", "4g_outage", "arm_usb", "orin_hang", "camera_cable"):
+        for f in ("4g_weak", "4g_outage", "arm_usb", "orin_hang", "camera_cable",
+                  *(("switch_hang", "site_power_cut") if self.profile == "v11" else ())):
             try:
                 self.fault(f, restore=True)
             except AssertionError:
@@ -154,3 +157,17 @@ def zone_crossings(truth, buffer_m=1.5):
 
 def dist(a, b):
     return math.dist(a, b)
+
+
+@pytest.fixture
+def v11(stack):
+    if stack.profile != "v11":
+        pytest.skip("v11 profile only (docker compose up runs it by default)")
+    return stack
+
+
+@pytest.fixture
+def phase1(stack):
+    if stack.profile != "phase1":
+        pytest.skip("phase-1 profile only (docker compose -f compose.yaml -f compose.phase1.yaml up)")
+    return stack

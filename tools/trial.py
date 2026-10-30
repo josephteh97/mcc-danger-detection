@@ -27,7 +27,7 @@ sys.path.insert(0, ROOT)
 
 import catalog                                                        # noqa: E402
 from app.alarm import (WARNING, AlarmFSM, Config, edge_distance,      # noqa: E402
-                       foot_pixel, ground_from_image)
+                       foot_pixel, ground_from_image, undistort_pixel)
 from app.detect import OracleDetector                                 # noqa: E402
 from app.links import aim_angles, beam_ground_point                   # noqa: E402
 from app.track import IoUTracker, iou                                 # noqa: E402
@@ -119,6 +119,10 @@ class TrialSession:
     def add_worker(self, xy=None):
         return self.world.scene.add_controlled(xy).id
 
+    def posture(self, name, wid=None):
+        """C (squat) or K (kneel) for the controlled worker: go down, or stand up again."""
+        return self.world.scene.toggle_posture(name, wid)
+
     def worker(self, wid):
         return next((w for w in self.world.scene.workers if w.id == wid), None)
 
@@ -158,7 +162,8 @@ class TrialSession:
         self.detector.feed(self.truth, self.t)
         self.boxes = self.tracker.update(self.detector.run(None, self.t), self.t)
         self.feet = {i: f for i, f in self.feet.items() if i in self.fsm.people}
-        self.feet.update({i: ground_from_image(self.H, *foot_pixel(b)) for i, b in self.boxes.items()})
+        lens = self.world.lens.params if self.world.lens else None
+        self.feet.update({i: ground_from_image(self.H, *undistort_pixel(*foot_pixel(b), lens)) for i, b in self.boxes.items()})
         self.dist = {i: edge_distance(*self.feet[i], self.pit) for i in self.boxes}
         for kind, pid in self.fsm.update(self.t, self.dist):
             self.events.append((round(self.t, 3), kind, pid))

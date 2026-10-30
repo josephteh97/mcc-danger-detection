@@ -85,7 +85,7 @@ def test_V15_two_workers(stack):
     last_exit = max(c[1] for c in crossings if c[1] is not None)
     resets = [e["ts"] for e in events if e["kind"] == "reset"]
     assert len(resets) == 1 and resets[0] >= last_exit + 1.9, f"resets {resets}, last exit {last_exit}"
-    site = __import__("catalog").load_site()["arm"]
+    site = __import__("catalog").load_site(profile=stack.profile)["arm"]
     from app.links import beam_ground_point
     bad = n = 0
     for a in arm:
@@ -178,7 +178,8 @@ def test_fault_arm_usb_unplugged(stack):
 
 
 # ---------------------------------------------------------------- regressions from the Step 2 findings
-def test_guide_arm_usb_command_unplugs_only_the_arm(stack):
+def test_guide_arm_usb_command_unplugs_only_the_arm(phase1):
+    stack = phase1
     """The guide's command, verbatim: `docker exec twin-devices-1 pkill -f TCP-LISTEN:7001`.
     Only the arm bridge stops; the devices container (same PID 1, no restart), both emulators
     and the relay bridge keep running."""
@@ -211,13 +212,17 @@ def test_fixed_addresses_held(stack):
         return {n.removeprefix(f"{PROJECT}_"): v["IPAddress"] for n, v in nets.items()}
     orin = ips("orin")
     assert ips("camera")["poe_lan"] == "192.168.10.20"
+    if stack.profile == "v11":
+        assert ips("devices") == {"poe_lan": "192.168.10.24"}
+        assert ips("router")["poe_lan"] == "192.168.10.1"
     assert (orin["poe_lan"], orin["wan_4g"]) == ("192.168.10.2", "172.30.4.2")
     assert ips("cloud")["wan_4g"] == "172.30.4.10"
     assert ipaddress.ip_address(ips("world")["poe_lan"]) in ipaddress.ip_network("192.168.10.128/25")
 
 
 def test_browser_stream_is_h264_420(stack):
-    """The stream a browser gets (HLS through the dashboard's /video/ proxy) is H.264 4:2:0, 1280x720."""
+    """The stream a browser gets (HLS through the dashboard's /video/ proxy) is H.264 4:2:0 at the
+    profile's frame size (1280x720 phase 1, 1600x1200 v11)."""
     if not shutil.which("ffprobe"):
         pytest.skip("ffprobe not installed on this host")
     out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
@@ -225,7 +230,8 @@ def test_browser_stream_is_h264_420(stack):
                           f"{DASHBOARD}/video/stream1/index.m3u8"], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     s = json.loads(out.stdout)["streams"][0]
-    assert (s["codec_name"], s["pix_fmt"], s["width"], s["height"]) == ("h264", "yuv420p", 1280, 720)
+    size = (stack.site["render"].get("width", 1280), stack.site["render"].get("height", 720))
+    assert (s["codec_name"], s["pix_fmt"], s["width"], s["height"]) == ("h264", "yuv420p", *size)
 
 
 def test_horn_sink_visible_to_docker_exec(stack):
@@ -260,3 +266,103 @@ def test_trial_walk_in_via_dashboard(stack):
     kinds = [e["kind"] for e in stack.state()["events"] if e.get("ts", 0) >= t0 and e.get("kind") != "health"]
     print(f"trial walk-in via the dashboard: {kinds}")
     assert kinds == ["caution", "warning", "alarm", "reset"]
+
+
+# ---------------------------------------------------------------- v11: Ethernet laser controller, remote management
+def _exec(stack, service, cmd, timeout=None):
+    code, out = stack.sh(service, cmd if timeout is None else f"timeout {timeout} {cmd}")
+    return code, out
+
+
+def test_v11_laser_controller_on_poe_lan(v11):
+    """The orin reaches the laser controller at 192.168.10.24:7001 and :7002; no container is on usb_bus."""
+    stack = v11
+    code, out = _exec(stack, "orin", "python3 -c \"import socket;[socket.create_connection(('192.168.10.24',p),2).close() for p in (7001,7002)]\"")
+    assert code == 0, out
+    on_usb = [c.name for c in stack.dk.containers.list() if f"{PROJECT}_usb_bus" in c.attrs["NetworkSettings"]["Networks"]]
+    assert not on_usb, on_usb
+    assert stack.wait_for(lambda: (s := stack.orin_status()) and s["arm_online"], 20, 0.5, "the arm online over TCP")
+
+
+def test_v11_laser_controller_restart_reconnects(v11):
+    """Ethernet link re-connected: the app's TCP arm link comes back within 2 s of the controller restarting."""
+    stack = v11
+    stack.fault("arm_usb")
+    stack.wait_for(lambda: (s := stack.orin_status()) and not s["arm_online"], 15, 0.5, "arm offline")
+    t0 = time.time()
+    stack.fault("arm_usb", restore=True)
+    stack.wait_for(lambda: (s := stack.orin_status()) and s["arm_online"] and s["ts"] > t0, 10, 0.2, "arm back online")
+    print(f"arm link back {time.time() - t0:.1f} s after the controller restarted")
+    assert time.time() - t0 <= 2.0 + 1.5        # 2 s reconnect + the 1 s status period and polling
+
+
+def test_v11_engineer_ssh_to_ai_box(v11):
+    """An engineer in the tailnet opens SSH to the AI box at its poe_lan address through the router."""
+    code, out = _exec(v11, "engineer", "ssh -i /keys/engineer -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+                                       "-o BatchMode=yes -o ConnectTimeout=5 root@192.168.10.2 'cat /data/status.json'")
+    assert code == 0 and '"state"' in out, out
+
+
+def test_v11_superior_cannot_reach_lan_but_sees_relay(v11):
+    stack = v11
+    code, _ = _exec(stack, "superior", "nc -z -w 2 192.168.10.2 22")
+    assert code != 0, "the superior reached the pole's LAN"
+    stack.wait_for(lambda: '"live_ts": null' not in _exec(stack, "superior", "curl -s http://172.30.4.11:8090/status")[1]
+                   and _exec(stack, "superior", "curl -s http://172.30.4.11:8090/status")[0] == 0, 60, 2, "live view on the relay")
+    code, out = _exec(stack, "superior", "curl -s -o /dev/null -w '%{http_code} %{content_type}' http://172.30.4.11:8090/live.jpg")
+    assert out.startswith("200 image/jpeg"), out
+    code, out = _exec(stack, "superior", "curl -s http://172.30.4.11:8090/events")
+    assert code == 0 and out.startswith("["), out
+
+
+def test_v11_no_inbound_port_on_4g(v11):
+    """A client on wan_4g outside the tailnet scans the router's 4G address: no port answers."""
+    code, out = _exec(v11, "superior", "sh -c 'for p in 22 80 443 1883 7001 7002 8022 8080 8554 41641; do "
+                                       "nc -z -w 1 172.30.4.3 $p && echo open $p; done; true'")
+    assert "open" not in out, out
+
+
+def test_v11_watchdog_recovers_ai_box_hang(v11):
+    """AI box hang: the PoE watchdog power-cycles it within 40 s, Monitoring within 60 s after that."""
+    stack = v11
+    stack.wait_monitoring()
+    t0 = time.time()
+    stack.fault("orin_hang")
+    try:
+        ev = stack.wait_for(lambda: next((e for e in stack.state()["events"] if e.get("what") == "watchdog_power_cycle"
+                                          and e["ts"] >= t0), None), 50, 1, "the watchdog power cycle")
+    finally:
+        c = stack.c("orin")
+        c.reload()
+        if c.status == "paused":
+            c.unpause()
+    t_cycle = ev["ts"] - t0
+    after = stack.wait_for(lambda: (s := stack.orin_status()) and s["ts"] > ev["ts"] and s.get("state") == "monitoring" and s,
+                           60, 0.5, "Monitoring after the watchdog")
+    print(f"watchdog: power cycle {t_cycle:.0f} s after the hang, Monitoring {after['ts'] - ev['ts']:.0f} s after that")
+    assert t_cycle <= 40 and after["ts"] - ev["ts"] <= 60
+
+
+def test_v11_switch_hang_and_remote_restart(v11):
+    """Switch hang: the router keeps reporting to the cloud; an engineer restarts the switch through
+    the tailnet and the camera stream and arm link come back within 60 s."""
+    stack = v11
+    stack.wait_monitoring()
+    stack.fault("switch_hang")
+    try:
+        stack.wait_for(lambda: (s := stack.orin_status()) and not s["camera_ok"] and not s["arm_online"], 30, 1,
+                       "camera and arm lost")
+        t_hang = time.time()
+        stack.wait_for(lambda: '"uptime_s"' in _exec(stack, "superior", "curl -s http://172.30.4.11:8090/events")[1]
+                       and any(e.get("ts", 0) > t_hang for e in json.loads(_exec(stack, "superior",
+                               "curl -s http://172.30.4.11:8090/events")[1]) if "uptime_s" in e), 15, 1,
+                       "router status reaching the cloud during the hang")
+        t0 = time.time()
+        code, out = _exec(stack, "engineer", "curl -s -m 90 -X POST http://100.64.0.1:8022/switch/restart")
+        assert code == 0 and '"ok": true' in out, out
+    finally:
+        stack.fault("switch_hang", restore=True)
+    stack.wait_for(lambda: (s := stack.orin_status()) and s["camera_ok"] and s["arm_online"] and s["ts"] > t0, 60, 1,
+                   "camera stream and arm link back")
+    print(f"switch restart: links back {time.time() - t0:.0f} s after the engineer's request")
+    assert time.time() - t0 <= 60

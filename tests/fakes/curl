@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Fake curl for tests/test_share.py: answers share.sh's requests without any network.
+# The local dashboard is up; the tunnel asks for sign-in (302) unless FAKE_OPEN is set.
+url="" fmt="" out=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -w) fmt=$2; shift ;;
+    -o) out=$2; shift ;;
+    -m|-H) shift ;;
+    http*) url=$1 ;;
+  esac
+  shift
+done
+cat >/dev/null 2>&1 <&0 &                  # swallow a header sent on stdin
+case "$url" in
+  *devtunnels.ms/healthz) if [ -n "${FAKE_OPEN:-}" ]; then body=ok code=200; else body="" code=302; fi ;;
+  *devtunnels.ms/video/*) body="#EXTM3U" code=200 ;;
+  *) body=ok code=200 ;;
+esac
+[ "$out" = /dev/null ] || printf '%s' "$body"
+[ -z "$fmt" ] || printf "${fmt//%\{http_code\}/$code}"
+exit 0

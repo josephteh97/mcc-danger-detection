@@ -46,21 +46,24 @@ class OracleDetector:
             self.sock.bind((host or "0.0.0.0", int(port)))
             self.sock.setblocking(False)
 
-    def processed_height(self, box, stream_w):
-        """Height in pixels of a stream box in the image the detector processes."""
+    def processed_height(self, box, stream_w, native_h=None):
+        """Height in pixels of a person in the image the detector processes: the native height
+        (from the world's coverage maths when it sends one, else the stream box scaled up),
+        shrunk to the detector's input unless it runs on full-resolution tiles."""
         h = box[3] - box[1]
         if not self.native_w or not stream_w:
             return h
-        h *= self.native_w / stream_w                       # stream -> native pixels
+        h = native_h if native_h else h * self.native_w / stream_w
         if not self.tiles and self.input_px:
             h *= self.input_px / self.native_w              # native -> shrunken detector input
         return h
 
-    def miss_probability(self, box, truth):
+    def miss_probability(self, worker, truth):
         if self.miss_model != "pixel_height":
             return self.miss_rate
         stream_w = (truth.get("size") or [0])[0]
-        return pixel_height_miss(self.processed_height(box, stream_w), truth.get("miss_factor", 1.0))
+        h = self.processed_height(worker["box"], stream_w, worker.get("h_native_px"))
+        return pixel_height_miss(h, truth.get("miss_factor", 1.0))
 
     def feed(self, truth, now):
         """Take one ground-truth message (as sent by the world) that arrived at `now`."""
@@ -69,7 +72,7 @@ class OracleDetector:
             box = w.get("box")
             if not box or w.get("visible", 1.0) < self.min_visible:
                 continue
-            if self.rng.random() < self.miss_probability(box, truth):
+            if self.rng.random() < self.miss_probability(w, truth):
                 continue
             j = self.box_jitter
             boxes.append(tuple(float(v) + self.rng.uniform(-j, j) for v in box))

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Fake devtunnel for tests/test_share.py: no network. FAKE_* variables pick failures; every call
+# is appended to $FAKE_LOG.
+echo "$*" >> "${FAKE_LOG:-/dev/null}"
+case "$1" in
+  user) echo "Logged in as tester using GitHub." ;;
+  list) echo '{"tunnels": []}' ;;
+  create)
+    [ -n "${FAKE_CREATE_FAIL:-}" ] && { echo "Unhandled exception: boom" >&2; exit 1; }
+    echo "{\"tunnel\": {\"tunnelId\": \"$2.asse\"}}" ;;
+  port)
+    [ "$2" = list ] && echo '{"ports": [{"portNumber": 8080, "protocol": "http"}]}'; true ;;
+  access)
+    case "$2" in
+      list) echo '{"accessControlEntries": []}' ;;
+      create) [[ " $* " == *" --repo "* ]] && { echo "Specify access control parameters." >&2; exit 1; } ;;
+    esac ;;
+  token) echo '{"token": "fake-connect-token"}' ;;
+  host) echo "Connect via browser: https://abc-8080.asse.devtunnels.ms"
+        echo "Ready to accept connections for tunnel: $2"
+        trap 'kill $! 2>/dev/null; exit' TERM; sleep 300 & wait ;;
+  delete) [ -n "${FAKE_DELETE_FAIL:-}" ] && { echo "Service unavailable" >&2; exit 1; }; echo "Deleted: $2" ;;
+esac
+exit 0

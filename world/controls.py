@@ -3,6 +3,7 @@ scenario and worker commands. One JSON object per datagram.
 
     {"cmd": "keys", "keys": ["up", "left"], "run": false}   # repeat ~10 times a second
     {"cmd": "add_worker"} | {"cmd": "switch"} | {"cmd": "reset"}
+    {"cmd": "posture", "posture": "squat"|"kneel"}            # C / K: go down or stand up
     {"cmd": "weather", "name": "night_rain"} | {"cmd": "scenario", "name": "single_walk_in"}
     {"cmd": "npcs", "n": 2}
 
@@ -59,6 +60,8 @@ def apply_message(world, msg):
         if cmd == "keys":
             keys = [k for k in msg.get("keys", []) if k in VALID_KEYS]
             world.scene.set_keys(keys, run=bool(msg.get("run")), worker_id=msg.get("worker"))
+        elif cmd == "posture":
+            world.scene.toggle_posture(str(msg.get("posture")), worker_id=msg.get("worker"))
         elif cmd == "add_worker":
             world.scene.add_controlled()
         elif cmd == "switch":

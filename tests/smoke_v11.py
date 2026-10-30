@@ -139,6 +139,29 @@ def u23():
         "Stage 1 then Stage 2, router on at least 10 h after Stage 2, hours without an alarm reported"
 
 
+# --------------------------------------------------------------------------- identification, watchdog (U24, U25)
+
+@check("U24", "No identity in v11")
+def u24():
+    from app_harness import alarm_event
+    event, loaded = alarm_event("app/config.v11.yaml")
+    ok = event["kind"] == "alarm" and "identity" not in event and not loaded
+    return ok, (f"alarm event keys {sorted(event)}; app.identify "
+                f"{'imported' if loaded else 'not imported'}"), \
+        "the v11 alarm event has no identity field and app.identify is not loaded"
+
+
+@check("U25", "Watchdog restart (model)")
+def u25():
+    from devices.poe_watchdog import simulate_hang
+    worst = [simulate_hang(hang_t=h, phase=0.0) for h in (0.0, 0.01, 5.0, 9.99)]
+    restart = max(r for r, _ in worst)
+    back = max(m - r for r, m in worst)
+    return restart <= 40 and back <= 60, \
+        f"power cycle at most {restart:.0f} s after the hang, Monitoring {back:.0f} s after the cycle", \
+        "3 missed pings 10 s apart: restart within 40 s, Monitoring within 60 s after that"
+
+
 # --------------------------------------------------------------------------- laser reach (U26)
 
 @check("U26", "Laser reach")

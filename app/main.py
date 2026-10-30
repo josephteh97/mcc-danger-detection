@@ -14,7 +14,8 @@ import time
 import numpy as np
 import yaml
 
-from app.alarm import LEVEL_NAMES, WARNING, AlarmFSM, Config, edge_distance, foot_pixel, ground_from_image
+from app.alarm import (LEVEL_NAMES, WARNING, AlarmFSM, Config, edge_distance, foot_pixel, ground_from_image,
+                       undistort_pixel)
 from app.detect import make_detector
 from app.health import FrameSource, Health
 from app.horn import Horn
@@ -58,6 +59,7 @@ class PoleApp:
         self.pole = str(cfg.get("pole_id", "00"))
         self.identity = identity_provider(cfg)
         self.H = load_homography(cfg["camera"]["homography"])
+        self.lens = cfg["camera"].get("lens")          # v11: the camera's barrel distortion, undone per foot
         self.pit = [tuple(p) for p in cfg["site"]["pit"]]
         self.fsm = AlarmFSM(Config(**cfg["alarm"]))
         dev = cfg["devices"]
@@ -132,7 +134,8 @@ class PoleApp:
             boxes = self.detector.run(frame, now)
             self.boxes = self.tracker.update(boxes, now)
             self.feet = {**{i: f for i, f in self.feet.items() if i in self.fsm.people},
-                         **{i: ground_from_image(self.H, *foot_pixel(b)) for i, b in self.boxes.items()}}
+                         **{i: ground_from_image(self.H, *undistort_pixel(*foot_pixel(b), self.lens))
+                            for i, b in self.boxes.items()}}
             self.dist = {i: edge_distance(*self.feet[i], self.pit) for i in self.boxes}
             for kind, pid in self.fsm.update(now, self.dist):
                 self.act(kind, pid, frame)
