@@ -1,0 +1,7 @@
+name: 24 V two-channel relay module (stage 1 and stage 2 load shedding)
+source: typical value
+verified: false
+price_sgd: 35
+kind: relay
+watts_typ: 1.0
+watts_max: 2

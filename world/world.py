@@ -321,7 +321,7 @@ class World:
         return {"t": wall_t, "sim_t": round(self.t, 3), "frame": self._frame, "weather": self.preset.name,
                 "scenario": self.scene.scenario, "workers": workers,
                 "arm": {"pan": self.arm[0], "tilt": self.arm[1], "laser": self.arm[2]},
-                "camera": f["camera"]["id"], "size": [self.W, self.H]}
+                "camera": f["camera"]["id"], "size": [self.W, self.H], "miss_factor": wx.miss_factor(self.preset)}
 
     def contrast(self, info, frame, wid):
         """Worker contrast: grey-level difference between the worker and the ground around them."""

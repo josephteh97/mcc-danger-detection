@@ -81,6 +81,16 @@ def get_preset(name):
 
 # --------------------------------------------------------------------------- effects
 
+def miss_factor(preset):
+    """How much the weather multiplies the detector's pixel-height miss rate (1.0 on a clear day):
+    fog and haze, rain, a fogged or wet window, and night without the floodlight."""
+    f = 1.0 + max(0.0, (500.0 - preset.visibility_m) / 500.0) + preset.rain_mm_h / 50.0
+    f += 0.5 * preset.window_fog + preset.window_drops_pct / 100.0 + 0.5 * preset.glare
+    if preset.night and not preset.floodlight:
+        f += 0.5
+    return round(f, 3)
+
+
 def transmission(dist_m, visibility_m):
     """Koschmieder: fraction of scene light that survives the path through the air."""
     return np.exp(-KOSCHMIEDER * np.asarray(dist_m, dtype=np.float32) / float(visibility_m))

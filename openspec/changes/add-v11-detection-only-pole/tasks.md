@@ -16,18 +16,18 @@
 
 ## 3. Catalogue
 
-- [ ] 3.1 Add the `switch`, `router`, `power_conv` and `monitor` folders with `_schema.yaml`
-- [ ] 3.2 Add the v11 products with `source`, `verified`, `price_sgd`, `watts_typ`, `watts_max`, `poe_class` and camera `dori_fp_px`
-- [ ] 3.3 Add plan totals excluding legacy products
-- [ ] 3.4 Verify: `python3 tests/smoke_catalog.py` (U09 covers both profiles)
+- [x] 3.1 Add the `switch`, `router`, `power_conv` and `monitor` folders with `_schema.yaml`
+- [x] 3.2 Add the v11 products with `source`, `verified`, `price_sgd`, `watts_typ`, `watts_max`, `poe_class` and camera `dori_fp_px`
+- [x] 3.3 Add plan totals excluding legacy products
+- [x] 3.4 Verify: `python3 tests/smoke_catalog.py` (U09 covers both profiles)
 
 ## 4. Detection coverage
 
-- [ ] 4.1 Distortion q, D and density in `catalog/effects.py` with exact optical-axis depth
-- [ ] 4.2 Processed-image density from `detector.input_px` or tiles
-- [ ] 4.3 `tools/coverage.py`: largest-zone solver (both methods), placement and height windows, ring grid check, `/api/coverage` data for the heatmap
-- [ ] 4.4 Pixel-height miss model and tiling flag in `app/detect.py`
-- [ ] 4.5 Verify: U11–U16 pass
+- [x] 4.1 Distortion q, D and density in `catalog/effects.py` with exact optical-axis depth
+- [x] 4.2 Processed-image density from `detector.input_px` or tiles
+- [x] 4.3 `tools/coverage.py`: largest-zone solver (both methods), placement and height windows, ring grid check, `/api/coverage` data for the heatmap
+- [x] 4.4 Pixel-height miss model and tiling flag in `app/detect.py`
+- [x] 4.5 Verify: U11–U16 pass
 
 ## 5. Ethernet laser controller
 

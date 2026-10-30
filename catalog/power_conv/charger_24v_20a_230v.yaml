@@ -1,0 +1,8 @@
+name: 230 V LiFePO4 charger, 24 V 20 A (Plan C)
+source: typical value
+verified: false
+price_sgd: 260
+kind: charger
+output_v: 28.8
+rated_w: 576
+efficiency: 0.90

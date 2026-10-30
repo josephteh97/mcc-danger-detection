@@ -11,7 +11,9 @@ import yaml
 
 CATALOG_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CATALOG_DIR)
-CATEGORIES = ["camera", "floodlight", "speaker", "laser", "ai_box", "battery", "solar", "mast"]
+BASE_CATEGORIES = ["camera", "floodlight", "speaker", "laser", "ai_box", "battery", "solar", "mast"]
+V11_CATEGORIES = ["switch", "router", "power_conv", "monitor"]       # version 11 pole network and power
+CATEGORIES = BASE_CATEGORIES + V11_CATEGORIES
 
 _TYPES = {"str": str, "bool": bool, "number": (int, float), "list": list}
 
@@ -132,12 +134,24 @@ def load_site(path=None, overrides=None, profile=None):
     site["profile"] = profile
     fitted_names = dict(site.get("products", {}))
     fitted_names.update(overrides or {})
-    missing = [c for c in CATEGORIES if c not in fitted_names]
+    missing = [c for c in BASE_CATEGORIES if c not in fitted_names]
     if missing:
         raise CatalogError(f"{path}: products: has no entry for {', '.join(missing)}")
-    site["fitted"] = {c: load_product(c, fitted_names[c]) for c in CATEGORIES}
+    unknown = [c for c in fitted_names if c not in CATEGORIES]
+    if unknown:
+        raise CatalogError(f"{path}: products: unknown category {', '.join(unknown)}")
+    site["fitted"] = {c: [load_product(c, n) for n in names] if isinstance(names, list) else load_product(c, names)
+                      for c, names in fitted_names.items()}
     check_laser_fit(site["fitted"]["laser"])
     return site
+
+
+def fitted_products(site):
+    """Every fitted product as a flat list (categories that fit several, like power_conv, expanded)."""
+    out = []
+    for p in site["fitted"].values():
+        out.extend(p if isinstance(p, list) else [p])
+    return out
 
 
 def validate_all():

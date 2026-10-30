@@ -1,0 +1,11 @@
+name: Seeed reComputer Super J4012 (Jetson Orin NX 16 GB), PoE++ via splitter
+source: hardware list version 11 (price); power figures typical values
+verified: false
+price_sgd: 1449.00
+power_w: 25
+watts_typ: 25
+watts_max: 36
+poe_class: 6
+detector_fps: 60
+ram_gb: 16
+cpus: 8

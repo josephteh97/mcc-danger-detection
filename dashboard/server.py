@@ -185,8 +185,10 @@ async def fault_status():
 def catalog_list():
     out = {}
     for cat in catalog.CATEGORIES:
-        out[cat] = [{"id": p, "name": catalog.load_product(cat, p)["name"],
-                     "verified": catalog.load_product(cat, p)["verified"], "fitted": p == SITE["products"][cat]}
+        fitted = SITE["products"].get(cat) or []
+        fitted = fitted if isinstance(fitted, list) else [fitted]
+        out[cat] = [{"id": p, "name": (prod := catalog.load_product(cat, p))["name"], "verified": prod["verified"],
+                     "legacy": prod.get("legacy", False), "fitted": p in fitted}
                     for p in catalog.list_products(cat)]
     return out
 
@@ -196,7 +198,7 @@ async def compare(body: dict):
     from tools.compare import compare as run_compare
     category, products = body.get("category"), body.get("products") or []
     weathers = body.get("weathers") or ["clear"]
-    if category not in catalog.CATEGORIES or not products or len(products) > 6 or len(weathers) > 6:
+    if category not in catalog.BASE_CATEGORIES or not products or len(products) > 6 or len(weathers) > 6:
         raise HTTPException(400, "pick a category, 1-6 products and 1-6 weather presets")
     try:
         result = await asyncio.to_thread(run_compare, category, products, weathers)

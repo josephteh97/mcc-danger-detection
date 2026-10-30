@@ -1,0 +1,10 @@
+category: power_conv
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  kind: {type: str, doc: "stepup, splitter, injector, psu or charger"}
+  output_v: {type: number, doc: "Output voltage"}
+  rated_w: {type: number, doc: "Rated output power"}
+  efficiency: {type: number, doc: "Conversion efficiency (0-1)"}

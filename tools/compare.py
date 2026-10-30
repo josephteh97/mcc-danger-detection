@@ -129,7 +129,7 @@ def format_table(result):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Compare catalogue products side by side")
-    ap.add_argument("category", choices=catalog.CATEGORIES)
+    ap.add_argument("category", choices=catalog.BASE_CATEGORIES)
     ap.add_argument("products", nargs="+")
     ap.add_argument("--weather", default="clear", help="comma-separated presets")
     ap.add_argument("--out", help="picture grid path (default logs/compare-<category>-<time>.jpg)")

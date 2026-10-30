@@ -29,10 +29,18 @@ def contrast(site, preset, frames=5):
 
 @check("U09", "Every catalogue file validates")
 def u09():
-    found = catalog.validate_all()
+    found = catalog.validate_all()                        # raises on the first bad file
     n = sum(len(v) for v in found.values())
-    fitted = {c: p["id"] for c, p in catalog.load_site(profile="phase1")["fitted"].items()}
-    return n == 20 and len(fitted) == 8, f"{n} product files in {len(found)} categories; site.yaml fits {len(fitted)} products", "all 20 files pass their schema and site.yaml fits one product per category"
+    phase1 = catalog.load_site(profile="phase1")
+    v11 = catalog.load_site(profile="v11")
+    unpowered = {"laser", "battery", "solar", "mast", "power_conv"}
+    no_watts = [p["id"] for c, f in v11["fitted"].items() if c not in unpowered and c != "floodlight"
+                for p in (f if isinstance(f, list) else [f]) if "watts_typ" not in p or "watts_max" not in p]
+    ok = len(phase1["fitted"]) == 8 and set(v11["fitted"]) == set(catalog.CATEGORIES) and not no_watts
+    return ok, (f"{n} product files in {len(found)} categories; phase1 fits {len(phase1['fitted'])} categories, "
+                f"v11 fits {len(catalog.fitted_products(v11))} products in {len(v11['fitted'])}"
+                + (f"; no watts_typ/watts_max: {', '.join(no_watts)}" if no_watts else "")), \
+        "every file passes its schema, phase1 fits one product per base category, v11 fits every category with watts on its powered products"
 
 
 @check("V23", "Product file checks")

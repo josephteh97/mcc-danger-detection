@@ -1,0 +1,11 @@
+category: switch
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  ports: {type: number, doc: "PoE ports"}
+  poe_budget_w: {type: number, doc: "Total PoE power the switch can supply"}
+  supply_v: {type: number, doc: "DC input voltage (fed by the 24 to 54 V step-up)"}
+  watts_typ: {type: number, doc: "Switch's own typical power, excluding the PoE it delivers"}
+  watts_max: {type: number, doc: "Switch's own worst-case power"}

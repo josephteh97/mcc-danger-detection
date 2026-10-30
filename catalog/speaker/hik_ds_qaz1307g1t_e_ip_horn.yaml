@@ -3,5 +3,8 @@ source: https://www.hikvision.com/en/products/Audio-Products/
 verified: false            # sound level from the listing
 price_sgd: 420
 power_w: 3
+watts_typ: 2
+watts_max: 20
+poe_class: 4               # class 4 assumed (open question in design.md)
 spl_1m_db: 121
 interface: ip

@@ -1,0 +1,8 @@
+name: 24 V to 54 V DC step-up converter, 300 W (feeds the PoE switch)
+source: typical value
+verified: false
+price_sgd: 85
+kind: stepup
+output_v: 54
+rated_w: 300
+efficiency: 0.94

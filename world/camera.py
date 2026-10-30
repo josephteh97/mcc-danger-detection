@@ -27,16 +27,24 @@ class PinholeCamera:
 
     @classmethod
     def from_site(cls, site, camera=None, mast=None, width=None, height=None):
-        """Camera at the fitted mast's height on site.yaml's mast position, aimed at the pit."""
+        """Camera at the fitted mast's height on the site's mast position, aimed at the pit. A site
+        may set the camera's own `height_m` (a stand set to a height) and `tilt_deg` (the optical
+        axis's angle below horizontal, along the bearing to `look_at`)."""
         camera = camera or site["fitted"]["camera"]
         mast = mast or site["fitted"]["mast"]
-        xy = np.asarray(site["camera"]["xy"], dtype=np.float64)
-        look = np.asarray(site["camera"].get("look_at", [0.0, 0.0]), dtype=np.float64)
+        sc = site["camera"]
+        xy = np.asarray(sc["xy"], dtype=np.float64)
+        look = np.asarray(sc.get("look_at", [0.0, 0.0]), dtype=np.float64)
+        h = sc.get("height_m", mast["height_m"])
         if mast["id"] != site["products"]["mast"]:       # a swapped mast stands at its own standoff
             bearing = (xy - look) / np.linalg.norm(xy - look)
             xy = look + bearing * mast["standoff_m"]
-        render = site["camera"].get("render", {})
-        return cls([xy[0], xy[1], mast["height_m"]], [look[0], look[1], 0.0], camera["hfov_deg"],
+            h = mast["height_m"]
+        if "tilt_deg" in sc:                             # aim point on the ground set by the tilt
+            fwd = (look - xy) / np.linalg.norm(look - xy)
+            look = xy + fwd * h / math.tan(math.radians(sc["tilt_deg"]))
+        render = sc.get("render", {})
+        return cls([xy[0], xy[1], h], [look[0], look[1], 0.0], camera["hfov_deg"],
                    width or render.get("width", 1280), height or render.get("height", 720))
 
     @property

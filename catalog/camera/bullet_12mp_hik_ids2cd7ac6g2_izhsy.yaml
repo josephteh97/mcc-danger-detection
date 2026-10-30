@@ -1,0 +1,15 @@
+name: Hikvision iDS-2CD7AC6G2-IZHSY 12 MP bullet, 2.8 mm setting
+source: hardware list version 11 (price); other figures typical values from the Hikvision listing
+verified: false            # price from hardware list v11; DORI ratio from the DORI table (px/m x distance)
+price_sgd: 1586.18
+power_w: 12
+watts_typ: 7
+watts_max: 18
+poe_class: 4
+resolution_px: [4000, 3000]
+hfov_deg: 102
+dori_fp_px: 2840
+form: bullet
+sun_hood: true
+true_wdr_db: 140
+ir_range_m: 60

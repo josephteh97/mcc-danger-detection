@@ -1,0 +1,7 @@
+name: Battery monitor with shunt and RS485 (state-of-charge alerts)
+source: typical value
+verified: false
+price_sgd: 120
+kind: battery_monitor
+watts_typ: 0.5
+watts_max: 1

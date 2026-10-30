@@ -1,0 +1,8 @@
+name: Passive PoE injector with 24 to 12 V converter for the 4G router
+source: typical value
+verified: false
+price_sgd: 25
+kind: injector
+output_v: 12
+rated_w: 24
+efficiency: 0.92

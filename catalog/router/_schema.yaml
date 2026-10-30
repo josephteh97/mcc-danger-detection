@@ -1,0 +1,11 @@
+category: router
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  wifi: {type: bool, doc: "Built-in Wi-Fi access point"}
+  rs485: {type: bool, doc: "RS485 port for the battery monitor"}
+  digital_out: {type: bool, doc: "Digital output that can drive the switch-restart relay"}
+  watts_typ: {type: number, doc: "Typical power"}
+  watts_max: {type: number, doc: "Worst-case power"}

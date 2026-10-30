@@ -1,0 +1,9 @@
+name: Managed 8-port gigabit PoE switch, 240 W budget, 48-54 V input, 802.3bt on port 4
+source: typical value
+verified: false
+price_sgd: 420
+ports: 8
+poe_budget_w: 240
+supply_v: 54
+watts_typ: 5
+watts_max: 9

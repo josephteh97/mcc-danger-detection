@@ -1,0 +1,9 @@
+name: Outdoor industrial 4G router with Wi-Fi, RS485 and digital output
+source: typical value
+verified: false
+price_sgd: 380
+wifi: true
+rs485: true
+digital_out: true
+watts_typ: 6
+watts_max: 10

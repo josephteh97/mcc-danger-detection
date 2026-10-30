@@ -1,0 +1,8 @@
+name: 802.3bt PoE++ splitter, 12 V 5 A output (AI box)
+source: typical value
+verified: false
+price_sgd: 45
+kind: splitter
+output_v: 12
+rated_w: 60
+efficiency: 0.90

@@ -1,0 +1,8 @@
+name: 24 V 240 W DIN-rail supply from the shared site socket (Plan A)
+source: typical value
+verified: false
+price_sgd: 140
+kind: psu
+output_v: 24
+rated_w: 240
+efficiency: 0.92
