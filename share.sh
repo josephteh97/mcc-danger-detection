@@ -80,6 +80,10 @@ stop_host() {
   say "Stopped hosting (pid $pid)."
 }
 
+abort_start() {             # EXIT trap while start is half done: undo everything it created
+  say "Start failed; removing tunnel $1." >&2; stop_host; delete_tunnel "$1" >&2 || true; rm -rf "$STATE"
+}
+
 delete_tunnel() {           # 0 when the tunnel is gone afterwards
   local out
   if out=$(dt delete "$1" -f 2>&1); then say "Deleted tunnel $1."
@@ -153,9 +157,7 @@ cmd_start() {
     esac
   done
   [[ -z "$expires" || "$expires" =~ ^[0-9]+[hd]$ ]] || fail "--expires takes hours or days, for example 8h or 2d"
-  # No repo rule by default: devtunnel (1.0.1972 and 1.0.2115) rejects every --repo rule with
-  # "Specify access control parameters" before contacting the service. Without options only the
-  # owner can sign in; --owner-only says so explicitly.
+  # No default repo rule: devtunnel rejects --repo rules (design D16).
   if [ "$owner_only" = 1 ]; then
     [ -z "$repo" ] && [ ${#orgs[@]} = 0 ] && [ "$tenant" = 0 ] || fail "--owner-only cannot be combined with --repo, --org or --tenant"
   fi
@@ -177,21 +179,18 @@ cmd_start() {
   rm -rf "$STATE"; mkdir -p "$STATE"
 
   local out
-  out=$(dt create --labels "$LABEL" -d "Danger-zone twin dashboard (share.sh)" ${expires:+--expiration "$expires"} -j 2>&1) \
-    || fail "could not create a tunnel: $out"
+  out=$(dt create --labels "$LABEL" -d "Danger-zone twin dashboard (share.sh)" ${expires:+--expiration "$expires"} -j 2>&1) || true
   id=$(json 'd["tunnel"]["tunnelId"]' <<<"$out" 2>/dev/null) || fail "could not create a tunnel; devtunnel said:
 $out"
   echo "$id" > "$STATE/tunnel"
-  # Expand $id now: the trap runs at exit, after cmd_start's locals are gone.
-  trap "say 'Start failed; removing tunnel $id.' >&2; stop_host; delete_tunnel '$id' >&2 || true; rm -rf \"\$STATE\"" EXIT
+  trap "abort_start $id" EXIT
 
   dt port create "$id" -p "$PORT" --protocol http >/dev/null
   local who=("the tunnel owner (you)")
   if [ -n "$repo" ]; then
     out=$(dt access create "$id" --repo "$repo" ${expires:+-e "$expires"} 2>&1) || fail "could not add the access rule for $repo:
 $(head -3 <<<"$out")
-  devtunnel 1.0.2115 and earlier reject --repo rules ('Specify access control parameters').
-  Share without it: ./share.sh start (owner only), or add --org <github-org> / --tenant"
+  devtunnel may reject --repo rules (design D16). Share without it: ./share.sh start, or use --org / --tenant"
     who+=("GitHub accounts with access to $repo")
   fi
   for org in "${orgs[@]}"; do
