@@ -5,6 +5,8 @@ field, or with a field of the wrong type, is refused with the file and field nam
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import os
 
 import yaml
@@ -59,6 +61,20 @@ def list_products(category):
     return sorted(f[:-5] for f in os.listdir(folder) if f.endswith(".yaml") and not f.startswith("_"))
 
 
+_OVERRIDES = contextvars.ContextVar("catalog_overrides", default=None)
+
+
+@contextlib.contextmanager
+def overriding(products):
+    """Within the block, load_product returns products with these fields changed, e.g.
+    {"lifepo4_24v_50ah": {"capacity_ah": 100}}: the dashboard's what-if numbers. Files are untouched."""
+    token = _OVERRIDES.set(products or None)
+    try:
+        yield
+    finally:
+        _OVERRIDES.reset(token)
+
+
 def load_product(category, name):
     path = os.path.join(CATALOG_DIR, category, f"{name}.yaml")
     if not os.path.exists(path):
@@ -68,6 +84,10 @@ def load_product(category, name):
         data = yaml.safe_load(f)
     product = dict(validate(category, data, os.path.relpath(path, ROOT_DIR)))
     product["id"] = name
+    changed = (_OVERRIDES.get() or {}).get(name)
+    if changed:
+        product.update(validate(category, {**product, **changed}, f"what-if values for {name}"))
+        product["id"], product["edited"] = name, sorted(changed)
     return product
 
 

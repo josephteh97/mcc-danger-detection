@@ -77,7 +77,6 @@ services:
   engineer:                    # a maintenance engineer's laptop in the tailnet
     build: { context: ., dockerfile: remote/Dockerfile }
     command: sh /remote/engineer.sh
-    cap_add: [NET_ADMIN]
     volumes: [eng_keys:/keys]
     networks: { tailnet: { ipv4_address: 100.64.0.10 } }
     depends_on: [router]

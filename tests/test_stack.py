@@ -298,8 +298,7 @@ def test_v11_laser_controller_restart_reconnects(v11):
 
 def test_v11_engineer_ssh_to_ai_box(v11):
     """An engineer in the tailnet opens SSH to the AI box at its poe_lan address through the router."""
-    code, out = _exec(v11, "engineer", "ssh -i /keys/engineer -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
-                                       "-o BatchMode=yes -o ConnectTimeout=5 root@192.168.10.2 'cat /data/status.json'")
+    code, out = _exec(v11, "engineer", "ssh 192.168.10.2 'cat /data/status.json'")
     assert code == 0 and '"state"' in out, out
 
 

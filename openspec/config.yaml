@@ -1,12 +1,20 @@
 schema: spec-driven
 
 context: |
-  Project: Danger-Zone Pole Digital Twin (Phase 1) for an MCC site pit alarm.
+  Project: Danger-Zone Pole Digital Twin for an MCC site pit alarm (phase 1 and version 11 profiles).
   A pole carries a fixed 8 MP camera, an Orin AI box, a horn, a strobe, a floodlight,
   a laser pointer arm and solar power. The pole watches an open pit, warns workers who
   come near it and alarms if they stay. The twin is a set of Docker containers on one
   Linux PC that stands in for the pole, the site and every device and cable, so the real
   alarm software (app/) runs unchanged inside an Orin-shaped sandbox container.
+
+  Version 11 profile (hardware list version 11, 30 Oct 2026): a detection-only pole with a 12 MP
+  Hikvision camera on a 3.8 m wheeled stand 9.5 m south of the pit, a reComputer Super J4012
+  (Orin NX 16 GB) on PoE++, an ESP32 laser controller with relays on Ethernet (192.168.10.24),
+  a managed 240 W PoE switch, a 4G router with an (emulated) Tailscale node, and one 24 V bus
+  with power Plans A (site socket), B (solar) and C (solar plus charger) and a two-stage shutdown.
+  site.yaml selects the profile (sites/phase1.yaml or sites/v11.yaml); the guide checks always
+  run on phase1. Identification is kept as switched-off legacy code (identify.enabled: false).
 
   Source of truth: "Danger-Zone Pole Digital Twin: Linux Implementation Guide"
   (14 Oct 2026, @Joseph). Validation IDs V01-V34 come from its test matrix.

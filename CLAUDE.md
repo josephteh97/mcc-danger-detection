@@ -15,9 +15,9 @@ Setup: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirem
 Quick checks (no Docker), each script is standalone:
 ```bash
 python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py \
-  && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py
+  && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py
 ```
-Expected: **36 PASS, 1 known FAIL (V11)**. `tests/_check.py` holds `KNOWN_FAIL`; a script exits 1 on any regression *or* if V11 starts passing (then update the matrix).
+Expected: **53 checks, 52 PASS, 1 known FAIL (V11)**. The first five scripts always load the phase-1 profile (36 PASS + V11); `smoke_v11.py` runs U11–U26 on v11. Legacy identification tests: `pytest --legacy tests/legacy`. `tests/_check.py` holds `KNOWN_FAIL`; a script exits 1 on any regression *or* if V11 starts passing (then update the matrix).
 
 pytest (quick checks via `test_quick.py`, static compose checks via `test_compose.py`, full stack via `test_stack.py`):
 ```bash
@@ -30,7 +30,8 @@ Full-stack tests auto-skip with "stack not running" unless all six `twin-*-1` co
 
 Stack:
 ```bash
-docker compose up -d --build                         # dashboard at http://localhost:8080
+docker compose up -d --build                         # v11 pole; dashboard at http://localhost:8080
+docker compose -f compose.yaml -f compose.phase1.yaml up -d --build    # phase-1 pole (USB cables)
 WEATHER=night_rain SCENARIO=idle docker compose up -d --build
 docker compose down
 ```
@@ -52,7 +53,8 @@ dashboard (FastAPI :8080, Docker socket) ─ HLS from camera, /logs, MQTT, world
 - **App pipeline** (`app/main.py`, `PoleApp`): capture (`health.FrameSource`) → detect (`detect.py`: `oracle` reads world truth over UDP with delay/miss rate; `yolo` ONNX) → track (`track.IoUTracker`) → `alarm.AlarmFSM` → act (`links.py`: arm aim angles, relays, `horn.py` PulseAudio sink) → upload (`links.Uplink`, SQLite queue at `/data/queue.db` so events survive 4G outages, published to MQTT). Status written to `/data/status.json`; homography from `/data/calib/homography.npy` (written by the one-shot `calib` service via `tools/calibrate.py`).
 - **Safety logic is pure functions** in `app/alarm.py` and `app/links.py` (zone geometry, FSM caution→warning→alarm→reset, aim angles, uplink queue), tested without hardware. App code uses `time.monotonic()`.
 - **Emulators expose the real device interface.** Swapping in real hardware should change only `app/config.yaml` and `compose.yaml`, never app code; protocol differences go in `links.py` adapters (`LineRelayAdapter`/`HexRelayAdapter`).
-- **Site and products**: `site.yaml` (pit, zones, camera/arm pose, fitted products, power loads; metres, origin at pit centre, x east/y north) is read by world, tools and tests via `catalog.load_site()`. `catalog/<category>/` holds `_schema.yaml` plus one YAML per product; files are validated against the schema. `catalog/effects.py` turns specs into simulation numbers for comparisons. `app/config.yaml` duplicates the pit and thresholds for the Orin side.
+- **Profiles**: `site.yaml` is a selector (`profile: v11|phase1`, `$TWIN_PROFILE` overrides) for `sites/<profile>.yaml`; the app runs `app/config.yaml` (phase 1) or `app/config.v11.yaml`. v11 adds the Ethernet laser controller (`app/links.TcpLine`), the coverage maths (`catalog/effects.py`, `tools/coverage.py`), PoE/4G/power models (`devices/poe_model.py`, `tools/network.py`, `devices/power_model.py --profile v11`), the emulated router/Tailscale/cloud relay (`remote/`), and the dashboard what-if panel (`dashboard/v11.py`). Change spec: `openspec/changes/add-v11-detection-only-pole/`.
+- **Site and products**: `sites/<profile>.yaml` (pit, zones, camera/arm pose, fitted products, power loads; metres, origin at pit centre, x east/y north) is read by world, tools and tests via `catalog.load_site()`. `catalog/<category>/` holds `_schema.yaml` plus one YAML per product; files are validated against the schema. `catalog/effects.py` turns specs into simulation numbers for comparisons. `app/config.yaml` duplicates the pit and thresholds for the Orin side.
 - **World** (`world/`): `world.py` writes raw BGR frames to stdout piped into ffmpeg, sends per-frame truth over UDP, and takes control messages (keys, weather presets from `weather.py`, scenarios from `scene.py`) on UDP 9200 — weather/scenario switch live, no restart.
 - **Orin image** has a fast x86 flavour (default) and a JetPack arm64 flavour (`ORIN_BASE` / `--build-arg BASE=...`).
 

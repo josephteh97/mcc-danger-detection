@@ -58,12 +58,12 @@
 
 ## 9. Rendering
 
-- [ ] 9.1 World: 1600×1200 v11 frames, distortion remap, ground texture, postured shaded workers with shadows, IR night and noise; keep 15 fps on one core
+- [x] 9.1 World: 1600×1200 v11 frames, distortion remap, ground texture, postured shaded workers with shadows, IR night and noise; keep 15 fps on one core
 - [x] 9.2 Postures in the world and oracle boxes; squatting scenario script
-- [ ] 9.3 Dashboard: vendor and pin new three.js add-ons
-- [ ] 9.4 Dashboard: PBR, tone mapping, sky and sun, soft shadows, rain and haze, floodlight cone
-- [ ] 9.5 Dashboard: rigged workers, wheeled stand and solar skid, true frustum, laser glow
-- [ ] 9.6 Dashboard: px/m heatmap, HUD panels, quality presets
+- [x] 9.3 Dashboard: vendor and pin new three.js add-ons
+- [x] 9.4 Dashboard: PBR, tone mapping, sky and sun, soft shadows, rain and haze, floodlight cone
+- [x] 9.5 Dashboard: rigged workers, wheeled stand and solar skid, true frustum, laser glow
+- [x] 9.6 Dashboard: px/m heatmap, HUD panels, quality presets
 - [ ] 9.7 Verify: ffprobe shows 1600×1200 H.264 yuv420p in v11; medium preset ≥ 30 fps at 1080p on integrated graphics
 
 ## 10. Trial mode
@@ -73,6 +73,6 @@
 
 ## 11. Validation
 
-- [ ] 11.1 `tests/smoke_v11.py` with U11–U26 using `tests/_check.py`
-- [ ] 11.2 Update README check counts (53 checks, 52 PASS + V11 known fail)
+- [x] 11.1 `tests/smoke_v11.py` with U11–U26 using `tests/_check.py`
+- [x] 11.2 Update README check counts (53 checks, 52 PASS + V11 known fail)
 - [ ] 11.3 Verify: full six-script chain; `openspec validate add-v11-detection-only-pole --strict`

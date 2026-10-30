@@ -24,7 +24,26 @@
   @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
   .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
-  #view3d { width: 100%; height: 440px; border-radius: 8px; overflow: hidden; background: #0d1117; touch-action: none; }
+  #view3d { width: 100%; height: 480px; border-radius: 8px; overflow: hidden; background: #0d1117; touch-action: none; position: relative; }
+  #view3d canvas { display: block; }
+  .hud { position: absolute; inset: 8px 8px auto auto; display: grid; gap: 6px; width: min(230px, 46%); pointer-events: none;
+         font-size: 12px; color: #e6e9ef; }
+  .hud > div { background: rgba(13, 17, 23, .72); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 8px; }
+  .hud b { font-weight: 650; } .hud .k { color: #9aa4b5; }
+  .hud .bar { height: 5px; background: rgba(255,255,255,.15); border-radius: 3px; margin-top: 3px; position: relative; overflow: hidden; }
+  .hud .bar i { position: absolute; inset: 0 auto 0 0; background: #4ade80; } .hud .bar i.res { background: rgba(250,204,21,.55); }
+  .hud .alarm { color: #f87171; } .hud .warning { color: #fbbf24; } .hud .monitoring { color: #4ade80; }
+  .viewbar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 8px; font-size: 12px; }
+  .wi-grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  @media (max-width: 900px) { .wi-grid { grid-template-columns: minmax(0, 1fr); } }
+  .wi-grid input[type=number] { width: 84px; font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--line); border-radius: 6px; padding: 3px 5px; }
+  .wi-grid input.edited { border-color: var(--accent); }
+  .wi-prod { border-bottom: 1px solid var(--line); padding: 6px 0; }
+  .wi-prod .flds { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; }
+  .wi-prod label, .wi-site label { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; }
+  .wi-site { display: grid; gap: 4px; }
+  .wi-site label { justify-content: space-between; }
+  .ok { color: var(--ok); } .bad { color: var(--alarm); font-weight: 600; }
   video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; display: block; }
   .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   button, select { font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
@@ -50,7 +69,7 @@
   .muted { color: var(--muted); font-size: 12px; }
   .full { grid-column: 1 / -1; }
 </style>
-<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/jsm/" } }</script>
 <script src="/static/vendor/hls.min.js"></script>
 </head>
 <body>
@@ -65,7 +84,13 @@
 <main>
   <section class="panel">
     <h2>3D site <span class="muted" id="mode">live</span></h2>
-    <div id="view3d"></div>
+    <div class="viewbar">
+      <label>quality <select id="quality"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option></select></label>
+      <label><input type="checkbox" id="heatmap"> px/m heatmap (green &ge; 100, amber 60-100, red &lt; 60)</label>
+      <label id="planPick" hidden>power plan <select id="plan"></select></label>
+      <span class="muted" id="fps"></span>
+    </div>
+    <div id="view3d"><div class="hud" id="hud"></div></div>
     <div class="row" id="replayBar" style="margin-top:8px; display:none">
       <button id="rpPrev">&#9664; frame</button><button id="rpPlay">play</button><button id="rpNext">frame &#9654;</button>
       <input id="rpSlider" type="range" min="0" max="0" value="0" style="flex:1; min-width:120px">
@@ -89,9 +114,10 @@
           <label class="row"><input type="checkbox" id="run"> run (Shift)</label>
           <label class="row"><input type="checkbox" id="kbd" checked> keyboard arrows / WASD</label>
           <div class="row"><button data-cmd="add_worker">add worker</button><button data-cmd="switch">switch</button><button data-cmd="reset">reset</button></div>
+          <div class="row"><button data-posture="squat">squat (C)</button><button data-posture="kneel">kneel (K)</button></div>
         </div>
       </div>
-      <div class="muted">Up walks away from the camera, as on screen. The worker stops 0.5 s after you let go.</div>
+      <div class="muted">Up walks away from the camera, as on screen. The worker stops 0.5 s after you let go. A squatting or kneeling worker does not move until C or K again.</div>
     </section>
   </div>
   <section class="panel">
@@ -112,6 +138,25 @@
     <h2>Recorded runs</h2>
     <div class="row"><select id="runs" style="flex:1; min-width:0"></select><button id="loadRun">replay</button><button id="refreshRuns">refresh</button></div>
     <div class="muted">Every scenario starts a new run in /logs/run-&lt;time&gt;/ (truth, events, arm and relay logs).</div>
+  </section>
+  <section class="panel full" id="whatifPanel">
+    <h2>v11 design what-if: key in the numbers</h2>
+    <div class="muted">Every value starts from the catalogue (most v11 figures are typical values, marked *). Change any number and the PoE budget,
+      power plans, costs, 4G data, coverage and laser reach are worked out again. Nothing is written to the catalogue files.</div>
+    <div class="row" style="margin:8px 0"><button id="wiReset">reset to the catalogue</button><span class="muted" id="wiInfo"></span></div>
+    <div class="wi-grid">
+      <div>
+        <h2>Results</h2>
+        <div class="scroll"><table id="wiChecks"></table></div>
+        <div class="scroll" style="margin-top:8px"><table id="wiPlans"></table></div>
+        <h2 style="margin-top:12px">Site settings</h2>
+        <div class="wi-site" id="wiSite"></div>
+      </div>
+      <div>
+        <h2>Products</h2>
+        <div id="wiProducts" style="max-height:620px; overflow-y:auto"></div>
+      </div>
+    </div>
   </section>
   <section class="panel full">
     <h2>Products: swap and compare</h2>

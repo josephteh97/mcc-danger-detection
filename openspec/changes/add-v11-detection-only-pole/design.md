@@ -54,6 +54,24 @@ The dashboard fault table adds switch hang, router-driven switch restart, AI box
 ### D12. Remote access
 `share.sh` already behaves as the updated spec says; the delta only records it. The v11 pole's own remote paths are emulated: a Tailscale-node container stands for the router (subnet route to `poe_lan`), plus an engineer client, a superior client and a cloud relay. The real Tailscale service is not used, so nothing leaves the internal networks. *Alternative:* run real Tailscale in the containers; rejected because the twin's networks must stay offline.
 
+### D13. What-if panel (added during implementation)
+Hardware list version 11 was not available while implementing, so only the camera and J4012 prices come from it; every other v11 figure is a typical value (`verified: false`) chosen so the reference numbers above hold. At the user's request the dashboard gained a what-if panel (`dashboard/v11.py`, `/api/v11/whatif`): every fitted and plan product's numbers and the site settings can be keyed in, and the PoE budget, power plans, costs, 4G data, coverage and laser reach are recalculated. Overrides apply through `catalog.overriding()` for one calculation; the catalogue files are never written.
+
+### D14. Rendering lens
+The datasheet distortion (q = 0.571, D = 0.844) is a cubic r = (f/p)·u·(1 − D·u²/3) that reaches the frame edge at u = tan 51° = 1.23, but it folds over at u = 1/√D = 1.09 (g = 1 − D·u² < 0 beyond). It is right for the coverage maths, where the zone is at u ≤ 0.6, but cannot render a frame. The world therefore renders through a monotone lens r = (f/p)·atan(k·u)/k with the same centre f/p and the 102° field of view (k = 1.545). It draws the ground, walls, workers and laser dot through that lens directly, so no per-frame remap is needed. The oracle's box heights come from the coverage maths (`h_native_px`), as D4 says. The app undoes the lens per foot point (`camera.lens` in `app/config.v11.yaml`, `app.alarm.undistort_pixel`) before the calibration homography. The world-simulator scenario "bowed by the amount D predicts within 2 px" is not met at the image edge because of the fold; within the zone the two models differ by up to about 40 px at u = 0.5.
+
+### D15. 4G data scope
+The monthly estimate counts event clips, event messages and live viewing through the cloud relay. The twin's 1 s MQTT status topic is a twin convenience and is not counted. With it, the baseline would be about 16 GB rather than 15 GB.
+
+### D16. PoE watchdog location
+The live PoE watchdog runs in the dashboard, the only container with the Docker socket. It treats a ping as answered when the orin container is running and its status file is under 10 s old. The pure model (`devices/poe_watchdog.py`) is what U25 checks.
+
+### D17. Engineer route as a SOCKS5 proxy
+Docker drops packets that a container routes from one internal network to another, so a kernel subnet route through the router container cannot work. The router node instead serves the subnet route the way Tailscale's userspace-networking mode does: as a SOCKS5 proxy on its tailnet address, for the engineers in its access list and for LAN destinations only. The engineer's SSH uses it as a ProxyCommand. The superior has no path to `poe_lan`, and nothing listens on the router's 4G address.
+
+### D18. Calibration follows the camera
+`tools/calibrate.py` keeps an existing homography only while it still fits the camera (the markers within 2 cm). Switching a stack between profiles recalibrates; a restart keeps the file (V16). After switching profile, restart the orin so the app loads the new file.
+
 ## Risks / Trade-offs
 
 - **Hikvision publishes no pixel size or DORI basis** → both coverage methods are reported; the report flags the range.

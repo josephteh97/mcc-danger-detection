@@ -109,6 +109,8 @@ async def live_ws(ws: WebSocket):
                 live.control({"cmd": "keys", "keys": keys, "run": bool(msg.get("run"))})
             elif msg.get("type") == "cmd" and msg.get("cmd") in ("add_worker", "switch", "reset"):
                 live.control({"cmd": msg["cmd"]})
+            elif msg.get("type") == "cmd" and msg.get("cmd") == "posture" and msg.get("posture") in ("squat", "kneel"):
+                live.control({"cmd": "posture", "posture": msg["posture"]})
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
@@ -135,23 +137,40 @@ async def video(path: str, request: Request):
 
 
 # ------------------------------------------------------------------ site, scenarios, weather
+def _footprint(cam, lens, per_edge=12):
+    """The camera's ground footprint, traced along the frame edge through the lens (bowed in v11)."""
+    from app.alarm import undistort_pixel
+    w, h = cam.width, cam.height
+    edge = [(u, h) for u in np.linspace(0, w, per_edge, endpoint=False)] + \
+           [(w, v) for v in np.linspace(h, 0, per_edge, endpoint=False)] + \
+           [(u, 0) for u in np.linspace(w, 0, per_edge, endpoint=False)] + \
+           [(0, v) for v in np.linspace(0, h, per_edge, endpoint=False)]
+    if lens is None:
+        edge = edge[::per_edge]                          # a pinhole's footprint is the four corners
+    out = []
+    for u, v in edge:
+        pu, pv = undistort_pixel(float(u), float(v), lens.params if lens else None)
+        d = cam.rays(np.array([pu]), np.array([pv]))[0]
+        s = 40.0 if d[2] >= -1e-9 else min(40.0, -cam.pos[2] / d[2])    # cap above the horizon at 40 m
+        out.append((float(cam.pos[0] + s * d[0]), float(cam.pos[1] + s * d[1])))
+    return out
+
+
 @app.get("/api/site")
 def site():
+    from world.camera import Lens
     cam = PinholeCamera.from_site(SITE)
-    corners = []
-    for u, v in ((0, cam.height), (cam.width, cam.height), (cam.width, 0), (0, 0)):
-        g = cam.ground_point(u, v)
-        if g is None:                       # above the horizon: cap the footprint at 40 m
-            d = cam.rays(np.array([float(u)]), np.array([float(v)]))[0]
-            g = (cam.pos[0] + 40 * d[0], cam.pos[1] + 40 * d[1])
-        corners.append(g)
+    corners = _footprint(cam, Lens.from_site(cam, SITE["fitted"]["camera"]))
     return {"profile": SITE["profile"], "render": SITE["camera"].get("render", {}),
             "pit": SITE["site"]["pit"], "boundary": SITE["site"]["boundary"],
             "rings": {str(b): fx.ring_points(SITE, b, 120).round(3).tolist()
                       for b in (SITE["zones"]["alarm_buffer_m"], SITE["zones"]["warn_buffer_m"])},
             "camera": {"pos": cam.pos.tolist(), "footprint": corners}, "arm": SITE["arm"],
             "floodlight": SITE["floodlight"], "products": SITE["products"],
-            "weathers": [{"name": p.name, "description": p.description} for p in wx.PRESETS.values()],
+            "weathers": [{"name": p.name, "description": p.description, "night": p.night, "floodlight": p.floodlight,
+                          "rain_mm_h": p.rain_mm_h, "visibility_m": p.visibility_m, "light": p.light,
+                          "wet_ground": p.wet_ground} for p in wx.PRESETS.values()],
+            "camera_h": float(cam.pos[2]), "plans": list((SITE.get("power_plans") or {}).keys()),
             "scenarios": [{"name": n, "label": SCENARIO_LABELS.get(n, n)} for n in SCENARIO_NAMES], "faults": FAULTS}
 
 
@@ -213,6 +232,43 @@ async def fault_restore(name: str):
 @app.get("/api/faults")
 async def fault_status():
     return {**await asyncio.to_thread(faults.status), "power_cut_plan": faults.power_cut_plan}
+
+
+@app.get("/api/coverage")
+async def coverage_map():
+    """px/m in the processed image on a ground grid, for the 3D view's heatmap."""
+    from dashboard import v11
+    return await asyncio.to_thread(v11.coverage, SITE)
+
+
+@app.get("/api/v11/hud")
+async def hud():
+    """HUD numbers: PoE, power plan, 4G data, and a site power cut's stages when one is active."""
+    from dashboard import v11
+    if SITE["profile"] != "v11":
+        return {"profile": SITE["profile"]}
+    out = await asyncio.to_thread(v11.hud_static, SITE)
+    out["power_cut"] = faults.power_cut_plan
+    return {"profile": "v11", **out}
+
+
+@app.get("/api/v11/whatif")
+async def whatif_fields():
+    """The numbers the what-if panel can change (products and site settings) and today's results."""
+    from dashboard import v11
+    fields = await asyncio.to_thread(v11.fields)
+    return {**fields, "result": await asyncio.to_thread(v11.whatif)}
+
+
+@app.post("/api/v11/whatif")
+async def whatif(body: dict):
+    """Recalculate PoE, power plans, costs, 4G, coverage and laser reach with keyed-in values.
+    Body: {"products": {"<id>": {"<field>": value}}, "settings": {"<key>": value}}. Files are untouched."""
+    from dashboard import v11
+    try:
+        return await asyncio.to_thread(v11.whatif, body.get("products"), body.get("settings"))
+    except (catalog.CatalogError, ValueError, TypeError, KeyError) as e:
+        raise HTTPException(400, f"{e.__class__.__name__}: {e}")
 
 
 @app.post("/api/v11/router/switch_restart")

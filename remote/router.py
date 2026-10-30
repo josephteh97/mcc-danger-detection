@@ -1,15 +1,23 @@
 """The v11 4G router with its Tailscale node, emulated.
 
 - Subnet route: engineers in the tailnet's access list reach poe_lan (192.168.10.0/24) through
-  this node (SNAT, as a Tailscale subnet router does). Nobody else is forwarded.
+  this node. As in Tailscale's userspace-networking mode, the route is served as a SOCKS5 proxy
+  on the node's tailnet address (port 1055): packets never cross from one Docker network to
+  another, which Docker's internal networks would drop. Nobody outside the list is let through,
+  and only LAN addresses can be reached. (The kernel route with SNAT is set up too, for a host
+  that allows it.)
 - Carrier-grade NAT: nothing answers on the 4G side; both remote paths are outbound.
 - Its own PoE injector, so it stays up when the switch or the AI box hangs. It publishes its
   status to the cloud every few seconds, and its digital output drives the switch-restart relay
   (in the twin: a call to the dashboard, which plays the switch).
 - Control endpoint on the tailnet only: POST /switch/restart, GET /status.
 """
+import ipaddress
 import json
 import os
+import select
+import socket
+import socketserver
 import subprocess
 import threading
 import time
@@ -56,6 +64,52 @@ def publish_status():
         time.sleep(3)
 
 
+class Socks(socketserver.BaseRequestHandler):
+    """SOCKS5 CONNECT for the subnet route (no other commands, no auth: the ACL is the tailnet's)."""
+    lan = ipaddress.ip_network(LAN)
+
+    def handle(self):
+        c = self.request
+        if self.client_address[0] not in ACL:
+            return
+        try:
+            head = c.recv(2)
+            c.recv(head[1])                                   # offered auth methods
+            c.sendall(b"\x05\x00")
+            ver, cmd, _, atyp = c.recv(4)
+            if atyp == 1:
+                host = socket.inet_ntoa(c.recv(4))
+            elif atyp == 3:
+                host = c.recv(c.recv(1)[0]).decode()
+            else:
+                raise ValueError("address type")
+            port = int.from_bytes(c.recv(2), "big")
+            if cmd != 1 or ipaddress.ip_address(socket.gethostbyname(host)) not in self.lan:
+                c.sendall(b"\x05\x02\x00\x01" + bytes(6))     # not allowed by the route
+                return
+            far = socket.create_connection((host, port), timeout=5)
+        except (OSError, ValueError, IndexError):
+            try:
+                c.sendall(b"\x05\x04\x00\x01" + bytes(6))
+            except OSError:
+                pass
+            return
+        c.sendall(b"\x05\x00\x00\x01" + socket.inet_aton(far.getsockname()[0]) + far.getsockname()[1].to_bytes(2, "big"))
+        far.settimeout(None)
+        try:
+            while True:
+                r, _, _ = select.select([c, far], [], [], 600)
+                if not r:
+                    return
+                for a in r:
+                    data = a.recv(65536)
+                    if not data:
+                        return
+                    (far if a is c else c).sendall(data)
+        finally:
+            far.close()
+
+
 class Control(BaseHTTPRequestHandler):
     def _reply(self, code, body):
         data = json.dumps(body).encode()
@@ -98,4 +152,8 @@ class Control(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     firewall()
     threading.Thread(target=publish_status, daemon=True).start()
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    socks = socketserver.ThreadingTCPServer((TAILNET_IP, 1055), Socks)
+    socks.daemon_threads = True
+    threading.Thread(target=socks.serve_forever, daemon=True).start()
     ThreadingHTTPServer((TAILNET_IP, 8022), Control).serve_forever()
