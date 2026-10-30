@@ -253,7 +253,7 @@ $(head -3 <<<"$out")
   anon=$(dt access list "$id" -j | json 'sum(1 for e in d.get("accessControlEntries", []) if e.get("type") == "Anonymous" and not e.get("isDeny"))')
   [ "$anon" = 0 ] || fail "the tunnel has an anonymous access rule; refusing to share"
 
-  nohup setsid "$DEVTUNNEL" host "$id" > "$STATE/host.log" 2>&1 < /dev/null &
+  nohup setsid "$DEVTUNNEL" host "$id" > "$STATE/host.log" 2>&1 < /dev/null 9<&- &   # 9<&-: not the lock
   echo $! > "$STATE/host.pid"
   local ready=0                                         # failures print host.log from abort_start
   for _ in $(seq 1 60); do
