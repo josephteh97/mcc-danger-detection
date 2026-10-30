@@ -11,3 +11,5 @@ reports/
 
 # Remote access state (share.sh)
 .share/
+
+conversation/
