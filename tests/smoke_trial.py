@@ -15,7 +15,7 @@ _walk = {}
 def walk_in():
     """One clear-day keyboard walk-in (default detector: 120 ms delay, 2% misses), shared by V30-V32."""
     if not _walk:
-        s = TrialSession(miss_rate=0.02, delay_ms=120, seed=1)
+        s = TrialSession(miss_rate=0.02, delay_ms=120, seed=1, profile="phase1")
         scripted_walk_in(s)
         _walk["session"], _walk["card"] = s, s.scorecard()
     return _walk["session"], _walk["card"]
@@ -30,7 +30,7 @@ def foot_px(session, wid):
 def v29():
     out, ok = [], True
     for keys, run, want_speed in (({"up"}, False, 1.4), ({"right"}, False, 1.4), ({"right"}, True, 3.0)):
-        s = TrialSession(delay_ms=0)
+        s = TrialSession(delay_ms=0, profile="phase1")
         wid = s.add_worker((-2.0, -2.5))
         s.step()
         (u0, v0), g0 = foot_px(s, wid)
@@ -72,7 +72,7 @@ def v32():
 
 @check("V33", "Site boundary")
 def v33():
-    s = TrialSession(delay_ms=0)
+    s = TrialSession(delay_ms=0, profile="phase1")
     wid = s.add_worker((-2.0, -2.5))
     s.hold({"up"}, 40.0)
     w = s.worker(wid)
@@ -86,7 +86,7 @@ def v33():
 def v34():
     from world.world import World
     import catalog
-    world = World(catalog.load_site())
+    world = World(catalog.load_site(profile="phase1"))
     server = ControlServer("127.0.0.1:0")
     addr = f"127.0.0.1:{server.port}"
     sender = threading.Thread(target=send_keys, args=(addr, ["up"]), kwargs={"duration_s": 1.5})
@@ -117,7 +117,7 @@ def v34():
 
 @check("U10", "Two workers: laser follows the one inside")
 def u10():
-    s = TrialSession(delay_ms=120, miss_rate=0.0, scenario="two_workers")
+    s = TrialSession(delay_ms=120, miss_rate=0.0, scenario="two_workers", profile="phase1")
     exits, follow_bad, follow_n, resets = {}, 0, 0, []
     last_inside, stable_since, lasing_since = None, 0.0, None
     for _ in range(int(26 * 15)):

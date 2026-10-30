@@ -5,6 +5,7 @@ RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn[standard]>=0.29" "docke
       "httpx>=0.27" "pyyaml>=6.0" "numpy>=1.26" "opencv-python-headless>=4.9"
 WORKDIR /twin
 COPY site.yaml ./
+COPY sites/ sites/
 COPY app/ app/
 COPY catalog/ catalog/
 COPY world/ world/

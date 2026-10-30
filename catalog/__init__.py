@@ -28,11 +28,22 @@ def load_schema(category):
         return yaml.safe_load(f)
 
 
+# Fields any product may carry (version 11): checked for type when present.
+COMMON_OPTIONAL = {
+    "legacy": {"type": "bool", "doc": "used only by identification; left out of v11 totals and PoE budgets"},
+    "watts_typ": {"type": "number", "doc": "typical power drawn"},
+    "watts_max": {"type": "number", "doc": "worst-case power drawn"},
+    "poe_class": {"type": "number", "doc": "IEEE 802.3 PoE class (0-8) for products powered over PoE"},
+}
+
+
 def validate(category, data, path="<product>"):
     if not isinstance(data, dict):
         raise CatalogError(f"{path}: not a YAML mapping")
-    for field, spec in load_schema(category)["fields"].items():
+    for field, spec in {**COMMON_OPTIONAL, **load_schema(category)["fields"]}.items():
         if field not in data:
+            if spec.get("optional") or field in COMMON_OPTIONAL:
+                continue
             raise CatalogError(f"{path}: missing required field '{field}' ({spec.get('doc', '')})")
         want = _TYPES[spec["type"]]
         value = data[field]
@@ -82,12 +93,43 @@ def check_laser_fit(product):
 
 # --------------------------------------------------------------------------- site
 
-def load_site(path=None, overrides=None):
-    """Load site.yaml and resolve the fitted products. `overrides` swaps products by
-    category, e.g. {"camera": "dome_4mp_2_8mm_generic"}."""
-    path = path or os.path.join(ROOT_DIR, "site.yaml")
-    with open(path) as f:
-        site = yaml.safe_load(f)
+SITES_DIR = os.path.join(ROOT_DIR, "sites")
+PROFILES = ("phase1", "v11")
+
+
+def active_profile(path=None):
+    """The site profile in use: $TWIN_PROFILE, else the selector in site.yaml."""
+    name = os.environ.get("TWIN_PROFILE")
+    if not name:
+        with open(path or os.path.join(ROOT_DIR, "site.yaml")) as f:
+            name = (yaml.safe_load(f) or {}).get("profile", "phase1")
+    if name not in PROFILES:
+        raise CatalogError(f"unknown site profile '{name}' (expected one of {', '.join(PROFILES)})")
+    return name
+
+
+def app_config_path(profile=None):
+    """The app config the Orin runs for a profile: app/config.yaml (phase 1) or app/config.v11.yaml."""
+    profile = profile or active_profile()
+    return os.path.join(ROOT_DIR, "app", "config.yaml" if profile == "phase1" else f"config.{profile}.yaml")
+
+
+def load_site(path=None, overrides=None, profile=None):
+    """Load a site profile and resolve the fitted products. `profile` picks sites/<profile>.yaml;
+    without it, `path` (a site file or the site.yaml selector) or the active profile is used.
+    `overrides` swaps products by category, e.g. {"camera": "dome_4mp_2_8mm_generic"}."""
+    if profile is None and path:
+        with open(path) as f:
+            site = yaml.safe_load(f)
+        if "site" not in site:                     # a selector file
+            return load_site(overrides=overrides, profile=active_profile(path))
+        profile = site.get("profile", os.path.splitext(os.path.basename(path))[0])
+    else:
+        profile = profile or active_profile()
+        path = os.path.join(SITES_DIR, f"{profile}.yaml")
+        with open(path) as f:
+            site = yaml.safe_load(f)
+    site["profile"] = profile
     fitted_names = dict(site.get("products", {}))
     fitted_names.update(overrides or {})
     missing = [c for c in CATEGORIES if c not in fitted_names]

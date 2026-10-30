@@ -1,4 +1,4 @@
-"""Fixtures for the full-stack checks (V12-V18 and the fault table).
+"""Fixtures for the full-stack checks (V12-V18 and the fault table), and the --legacy option.
 
 The stack must be up (docker compose up -d --build); otherwise these tests are skipped with
 "stack not running" and only the quick checks run.
@@ -18,6 +18,23 @@ ROOT = os.path.dirname(HERE)
 for p in (HERE, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+LEGACY_DIR = os.path.join(HERE, "legacy")
+
+
+def pytest_addoption(parser):
+    parser.addoption("--legacy", action="store_true",
+                     help="run the legacy identification tests in tests/legacy/ (skipped by default)")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--legacy"):
+        return
+    skip = pytest.mark.skip(reason="legacy identification test: run with --legacy")
+    for item in items:
+        if str(item.fspath).startswith(LEGACY_DIR + os.sep):
+            item.add_marker(skip)
+
 
 DASHBOARD = os.environ.get("TWIN_DASHBOARD", "http://127.0.0.1:8080")
 PROJECT = os.environ.get("TWIN_PROJECT", "twin")

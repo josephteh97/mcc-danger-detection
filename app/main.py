@@ -18,7 +18,6 @@ from app.alarm import LEVEL_NAMES, WARNING, AlarmFSM, Config, edge_distance, foo
 from app.detect import make_detector
 from app.health import FrameSource, Health
 from app.horn import Horn
-from app.identify import identify
 from app.links import (FLOODLIGHT, LASER_POWER, STROBE, ArmLink, HexRelayAdapter, LineRelayAdapter,
                        MqttPublisher, Relays, SerialLine, Uplink, aim_angles)
 from app.track import IoUTracker
@@ -43,10 +42,21 @@ def floodlight_due(hours, t=None):
     return (h >= a or h < b) if a > b else a <= h < b
 
 
+def identity_provider(cfg):
+    """The identify step's provider, or None when `identify.enabled` is false (v11). Phase 1 has
+    no `identify` key and keeps identification on. When off, app.identify is never imported."""
+    ident = cfg.get("identify", {"enabled": True})
+    if not ident.get("enabled", True):
+        return None
+    from app.identify import make_provider
+    return make_provider(ident)
+
+
 class PoleApp:
     def __init__(self, cfg):
         self.cfg = cfg
         self.pole = str(cfg.get("pole_id", "00"))
+        self.identity = identity_provider(cfg)
         self.H = load_homography(cfg["camera"]["homography"])
         self.pit = [tuple(p) for p in cfg["site"]["pit"]]
         self.fsm = AlarmFSM(Config(**cfg["alarm"]))
@@ -99,8 +109,8 @@ class PoleApp:
             person = self.fsm.people.get(pid)
             event["dist_m"] = round(self.dist.get(pid, person.dist if person else -1.0), 2)
             event["zone_s"] = round(self.fsm.zone_time(pid, time.monotonic()), 2)
-        if kind == "alarm" and frame is not None and pid in self.boxes:
-            event["identity"] = identify(frame, self.boxes[pid])["result"]
+        if kind == "alarm" and self.identity and frame is not None and pid in self.boxes:
+            event["identity"] = self.identity.identify(frame, self.boxes[pid], pid)["result"]
         self.emit(event)
 
     def aim(self):

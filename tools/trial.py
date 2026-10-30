@@ -34,8 +34,11 @@ from app.track import IoUTracker, iou                                 # noqa: E4
 from devices.arm_emulator import ArmModel                             # noqa: E402
 from world.world import World                                         # noqa: E402
 
-with open(os.path.join(ROOT, "app", "config.yaml")) as _f:
-    APP_CFG = yaml.safe_load(_f)
+
+
+def app_config(profile=None):
+    with open(catalog.app_config_path(profile)) as f:
+        return yaml.safe_load(f)
 
 
 class Scorecard:
@@ -97,15 +100,16 @@ class TrialSession:
     """One trial: the world plus the app's tested pipeline on a simulated clock."""
 
     def __init__(self, weather="clear", camera=None, npcs=0, miss_rate=0.0, delay_ms=120, seed=0,
-                 scenario="idle", fps=15):
-        site = catalog.load_site(overrides={"camera": camera} if camera else None)
+                 scenario="idle", fps=15, profile=None):
+        site = catalog.load_site(overrides={"camera": camera} if camera else None, profile=profile)
+        app_cfg = app_config(site["profile"])
         self.world = World(site, weather=weather, seed=seed, npcs=npcs, scenario=scenario)
         self.H, self.pit = self.world.homography(), self.world.pit
-        self.fsm = AlarmFSM(Config(**APP_CFG["alarm"]))
+        self.fsm = AlarmFSM(Config(**app_cfg["alarm"]))
         self.detector = OracleDetector(None, delay_ms=delay_ms, jitter_ms=20 if delay_ms else 0,
                                        miss_rate=miss_rate, seed=seed)
         self.tracker = IoUTracker(max_age_s=self.fsm.cfg.clear_s)
-        self.arm, self.arm_cfg = ArmModel(0.0), APP_CFG["arm"]
+        self.arm, self.arm_cfg = ArmModel(0.0), app_cfg["arm"]
         self.dt, self.t = 1.0 / fps, 0.0
         self.events, self.feet, self.dist, self.boxes = [], {}, {}, {}
         self.outputs = {"horn": None, "strobe": False, "laser_power": False}

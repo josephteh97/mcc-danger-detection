@@ -1,0 +1,117 @@
+# Site profile for hardware list version 11 (30 October 2026): a detection-only pole.
+# One 12 MP camera on a 3.5-4 m wheeled cabinet stand, a reComputer Super J4012 on PoE++,
+# the laser controller and its relays on Ethernet, one 24 V bus with three power plans.
+# Ground coordinates are metres, origin at the pit centre, x east, y north, z up.
+
+site:
+  name: MCC pit 07
+  pole_id: "07"
+  pit: [[-1.2, -0.8], [1.2, -0.8], [1.2, 0.8], [-1.2, 0.8]]   # 2.4 m by 1.6 m, as in phase 1
+  boundary: [[-12.0, -11.0], [12.0, -11.0], [12.0, 9.0], [-12.0, 9.0]]   # hoarding moved back for the stand
+  ground_reflectance: 0.32
+
+zones:                             # the guide's thresholds, unchanged
+  alarm_buffer_m: 1.5
+  warn_buffer_m: 3.0
+
+camera:                            # 12 MP camera at the top of the wheeled stand
+  xy: [0.0, -9.5]                  # 9.5 m south of the pit centre (laser reach, design D6)
+  height_m: 3.8                    # stand set to 3.8 m (window 2.7-5.7 m, U15)
+  look_at: [0.0, 0.0]              # bearing: straight at the pit
+  tilt_deg: 32.6                   # optical axis below horizontal; puts the warning ring's far edge at 122 px/m
+  render: { width: 1600, height: 1200, fps: 15 }   # 4:3 stream; coverage maths uses the native 4,000 x 3,000
+
+arm:                               # laser on the stand, pivot directly below the camera
+  xy: [0.0, -9.5]
+  heading_deg: 90                  # facing north, at the pit
+  pivot_h_m: 1.1
+  tilt_stops_deg: [5, 45]          # hardware stops below horizontal
+
+floodlight:
+  xy: [0.0, -9.5]
+  height_m: 3.6
+  aim: [0.0, 0.0]
+
+reference_worker:
+  xy: [0.3, -1.5]
+  chest_h_m: 1.2
+
+calibration:
+  points: [[-3.0, -3.0], [3.0, -3.0], [3.0, 3.0], [-3.0, 3.0]]
+
+products:                          # one name per category, or a list where several are fitted
+  camera: bullet_12mp_hik_ids2cd7ac6g2_izhsy
+  floodlight: led_30w_24v_narrow
+  speaker: hik_ds_qaz1307g1t_e_ip_horn
+  laser: green_520nm_class2
+  ai_box: seeed_recomputer_super_j4012
+  battery: lifepo4_24v_50ah        # Plan A; Plans B and C fit their own (power_plans)
+  solar: panels_4x250w             # used by Plans B and C only
+  mast: wheeled_cabinet_stand_4m
+  switch: managed_poe_8p_240w_48v
+  router: outdoor_4g_router_wifi
+  power_conv: [stepup_24_54v, poe_bt_splitter_12v, poe_injector_router, psu_24v_240w]
+  monitor: [battery_monitor_rs485, relay_24v_2ch]
+
+detector:                          # what the coverage maths assumes the detector processes
+  native_px: [4000, 3000]
+  tiles: true                      # full-resolution tiles over the zone region
+  input_px: 1280                   # used when tiles is false
+  density_px_per_m: 100            # 100 px for a 1.0 m squatting worker
+
+poe_ports:                         # managed PoE switch port map (devices/poe_model.py)
+  - { port: 1, device: camera, poe_class: 4 }
+  - { port: 2, device: speaker, poe_class: 4 }          # IP horn, class 4 worst case
+  - { port: 3, device: router, data_only: true }         # the router has its own injector
+  - { port: 4, device: ai_box, poe_class: 6, via: poe_bt_splitter_12v }   # 802.3bt PoE++
+  - { port: 5, device: laser_controller, poe_class: 0 }
+  - { port: 6 }
+  - { port: 7 }
+  - { port: 8 }
+
+laser_controller:                  # ESP32 laser and relay controller on poe_lan (typical values)
+  ip: 192.168.10.24
+  arm_port: 7001
+  relay_port: 7002
+  watts_typ: 3.0
+  watts_max: 6.0
+  price_sgd: 120
+
+network:                           # 4G data inputs (tools/network.py)
+  sim_plan_gb: 30
+  events_per_day: 50
+  clip_mb: 1.3
+  view_hours_per_day: 1.0
+  view_mbps: 1.0
+  port_mbps: 1000                  # gigabit switch ports
+
+power:
+  bus_v: 24
+  efficiency: { stepup: 0.94, cable: 0.97, splitter: 0.90, dc12: 0.92 }
+  other_hardware_sgd: 150          # cabinet wiring, glands, surge protection
+  floodlight_hours: [19, 7]
+  daylight_hours: [7, 19]
+  monitor_alerts_pct: [50, 30, 10]
+  stage1: { off_pct: 30, on_pct: 40 }    # floodlight, strobe, servos and laser off
+  stage2: { off_pct: 10, on_pct: 20 }    # step-up off: switch, AI box, camera, horn, laser controller
+  socket_schedule: { on: always, night_off: [22, 6], weekend_off_h: 60 }
+
+power_plans:
+  A:
+    name: shared site socket, 24 V 240 W supply, 50 Ah backup with DC UPS
+    battery: lifepo4_24v_50ah
+    socket: true
+    parts: [psu_24v_240w]
+  B:
+    name: 4 x 250 W panels, MPPT controller, 200 Ah LiFePO4
+    battery: lifepo4_24v_200ah
+    solar: panels_4x250w
+    parts: []
+    other_sgd: 180                 # MPPT controller (typical value)
+  C:
+    name: Plan B plus a 20 A charger fed by the socket schedule
+    battery: lifepo4_24v_200ah
+    solar: panels_4x250w
+    socket: true
+    parts: [charger_24v_20a_230v]
+    other_sgd: 180

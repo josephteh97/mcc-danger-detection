@@ -10,7 +10,7 @@ from devices.power_model import PowerConfig, lowest_charge
 from world import weather as wx
 from world.world import World
 
-SITE = catalog.load_site()
+SITE = catalog.load_site(profile="phase1")
 REF = tuple(SITE["reference_worker"]["xy"])
 _contrast = {}
 

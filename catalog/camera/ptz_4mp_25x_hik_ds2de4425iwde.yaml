@@ -1,4 +1,5 @@
 name: Hikvision DS-2DE4425IW-DE 4 MP 25x PTZ (wide end)
+legacy: true               # identification only (zoom-on-alarm); not fitted in version 11
 source: https://www.hikvision.com/en/products/IP-Products/PTZ-Cameras/Pro-Series/ds-2de4425iw-de/
 verified: false            # IR range from the listing; the rest are typical values
 price_sgd: 650

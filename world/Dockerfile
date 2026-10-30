@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 RUN pip install --no-cache-dir "numpy>=1.26" "opencv-python-headless>=4.9" "pyyaml>=6.0"
 WORKDIR /twin
 COPY site.yaml ./
+COPY sites/ sites/
 COPY app/ app/
 COPY catalog/ catalog/
 COPY world/ world/

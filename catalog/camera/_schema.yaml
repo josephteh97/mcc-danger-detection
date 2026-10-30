@@ -11,3 +11,4 @@ fields:
   sun_hood: {type: bool, doc: "Hood over the window (collects about 40% of the drops)"}
   true_wdr_db: {type: number, doc: "True (multi-exposure) WDR in dB; 0 if only digital WDR"}
   ir_range_m: {type: number, doc: "Infrared illuminator range"}
+  dori_fp_px: {type: number, optional: true, doc: "Centre lens ratio f/p in pixels per radian, from the DORI table (px/m x distance)"}

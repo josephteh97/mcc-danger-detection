@@ -12,7 +12,7 @@ from devices.power_model import PowerConfig
 from world import weather as wx
 from world.world import World
 
-SITE = catalog.load_site()
+SITE = catalog.load_site(profile="phase1")
 REF = tuple(SITE["reference_worker"]["xy"])
 
 
@@ -31,7 +31,7 @@ def contrast(site, preset, frames=5):
 def u09():
     found = catalog.validate_all()
     n = sum(len(v) for v in found.values())
-    fitted = {c: p["id"] for c, p in catalog.load_site()["fitted"].items()}
+    fitted = {c: p["id"] for c, p in catalog.load_site(profile="phase1")["fitted"].items()}
     return n == 20 and len(fitted) == 8, f"{n} product files in {len(found)} categories; site.yaml fits {len(fitted)} products", "all 20 files pass their schema and site.yaml fits one product per category"
 
 

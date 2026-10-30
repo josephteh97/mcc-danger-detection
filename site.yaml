@@ -1,53 +1,5 @@
-# Site description for the twin: pit outline, zones, camera and arm pose, site boundary,
-# and which catalogue product is fitted to the pole. Ground coordinates are metres,
-# origin at the pit centre, x east, y north, z up.
-
-site:
-  name: MCC pit 07
-  pole_id: "07"
-  pit: [[-1.2, -0.8], [1.2, -0.8], [1.2, 0.8], [-1.2, 0.8]]   # 2.4 m by 1.6 m
-  boundary: [[-12.0, -9.0], [12.0, -9.0], [12.0, 9.0], [-12.0, 9.0]]   # site hoarding
-  ground_reflectance: 0.32        # muddy ground
-
-zones:
-  alarm_buffer_m: 1.5
-  warn_buffer_m: 3.0
-
-camera:                            # fixed camera at the top of the mast
-  xy: [-6.9, 4.0]                  # mast position, about 8 m from the pit centre; the
-                                   # height comes from the fitted mast (6.5 m trailer)
-  look_at: [0.0, 0.0]              # aimed at the pit
-  render: { width: 1280, height: 720, fps: 15 }   # scaled-down 8 MP stream
-
-arm:                               # laser arm on the trailer
-  xy: [-6.0, 3.6]
-  heading_deg: -30
-  pivot_h_m: 1.1
-
-floodlight:
-  xy: [-6.9, 4.0]
-  height_m: 6.0
-  aim: [0.0, 0.0]
-
-reference_worker:                  # where product comparisons measure the worker
-  xy: [0.3, -1.5]                  # standing just outside the pit's near-south edge
-  chest_h_m: 1.2
-
-calibration:                       # four ground markers used to fit the homography
-  points: [[-3.0, -3.0], [3.0, -3.0], [3.0, 3.0], [-3.0, 3.0]]
-
-products:                          # one file name per catalogue folder
-  camera: bullet_8mp_4mm_generic
-  floodlight: led_30w_24v_narrow
-  speaker: horn_30w_analog_generic
-  laser: green_520nm_class2
-  ai_box: jetson_orin_nano_super_8gb
-  battery: lifepo4_24v_100ah
-  solar: panels_2x250w
-  mast: trailer_telescopic_6_5m
-
-power:                             # loads not covered by a product file
-  other_load_w: 11                 # switch, 4G modem, idle relays and arm
-  other_hardware_sgd: 150          # cabinet, cabling, surge protection
-  floodlight_hours: [19, 7]        # on from 19:00 to 07:00
-  daylight_hours: [7, 19]
+# Selects the site profile that the world, dashboard, tools and stack load (catalog.load_site):
+#   sites/phase1.yaml  the 14 October guide's pole (8 MP camera on a 6.5 m trailer mast)
+#   sites/v11.yaml     hardware list version 11 (12 MP camera on a 3.8 m wheeled stand)
+# $TWIN_PROFILE overrides this line. The phase-1 quick checks always load phase1.
+profile: phase1

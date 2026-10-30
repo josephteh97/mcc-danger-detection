@@ -13,7 +13,7 @@ from world.world import World
 
 FPS = 15
 FRAME = 1.0 / FPS
-SITE = catalog.load_site()
+SITE = catalog.load_site(profile="phase1")
 PIT = [tuple(p) for p in SITE["site"]["pit"]]
 
 
