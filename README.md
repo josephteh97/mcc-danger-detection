@@ -233,7 +233,7 @@ The guide's "Source files" tab was not available, so every module was written fr
 - **Socat retry loops.** The sandbox wraps `socat` in retry loops so a re-plugged cable comes back.
 - **Power-model start.** The model starts with a full battery at sunset after a clear day. This reproduces the guide's battery figures to within about 1 point.
 
-### Version 11 notes (recorded in `openspec/changes/add-v11-detection-only-pole/design.md`)
+### Version 11 notes (recorded in `openspec/changes/archive/2026-10-30-add-v11-detection-only-pole/design.md`)
 
 - **Typical values.** Only the 12 MP camera (S$1,586.18) and the J4012 (S$1,449.00) carry prices from hardware list version 11. Every other v11 figure is a typical value marked `verified: false`. It was chosen so the change's reference numbers hold (135.4 W PoE reserved, about 88 W drawn, 65–75 W bus load). Correct the values in the what-if panel, then in the catalogue files.
 - **What-if panel** (D13). The dashboard lets you key in product values and site settings and recalculates every v11 model. This was asked for during implementation; it is not in the guide.
