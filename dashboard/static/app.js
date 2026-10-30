@@ -43,7 +43,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 view.insertBefore(renderer.domElement, view.firstChild);
 const scene = new THREE.Scene();
 const cam3 = new THREE.PerspectiveCamera(45, 1, 0.1, 600);
-cam3.position.copy(P(-15, -22, 14));
+cam3.position.copy(P(-9, -10, 11));                 // inside the hoarding, behind and above the stand
 const controls = new OrbitControls(cam3, renderer.domElement);
 controls.target.set(0, 0, 0);
 controls.maxPolarAngle = 88 * DEG;
@@ -54,13 +54,12 @@ sun.shadow.camera.left = -16; sun.shadow.camera.right = 16; sun.shadow.camera.to
 sun.shadow.camera.far = 120; sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
 scene.add(hemi, sun, sun.target);
 const sky = new Sky(); sky.scale.setScalar(450); scene.add(sky);
-Object.assign(sky.material.uniforms, {});
 sky.material.uniforms.turbidity.value = 6; sky.material.uniforms.rayleigh.value = 1.6;
 sky.material.uniforms.mieCoefficient.value = 0.004; sky.material.uniforms.mieDirectionalG.value = 0.8;
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, cam3));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.9, 0.35, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.25, 1.0);   // threshold 1: only HDR emitters glow
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -136,7 +135,7 @@ function buildSite(s) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), groundMat);
   ground.rotation.x = -Math.PI / 2; ground.position.copy(P((x0 + x1) / 2, (y0 + y1) / 2, 0)); ground.receiveShadow = true;
   scene.add(ground); objs.ground = ground;
-  const hoard = std(0xb9b2a4, { transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+  const hoard = std(0xb9b2a4, { transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
   [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]].forEach(([ax, ay, bx, by]) => {
     const len = Math.hypot(bx - ax, by - ay), wall = box(len, 2.4, 0.05, hoard, false);
     wall.position.copy(P((ax + bx) / 2, (ay + by) / 2, 1.2)); wall.rotation.y = Math.atan2(by - ay, bx - ax); scene.add(wall);
@@ -172,8 +171,8 @@ function buildSite(s) {
   scene.add(objs.frustum);
   // laser beam and dot (emissive: bloom makes them glow)
   objs.laser = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 6, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0x55ff77, transparent: true, opacity: 0.85 }));
-  objs.dot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), new THREE.MeshBasicMaterial({ color: 0x9dffb0 }));
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.6, 3.0, 0.9), transparent: true, opacity: 0.85, toneMapped: false }));
+  objs.dot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.5, 4.0, 1.8), toneMapped: false }));
   objs.dot.scale.y = 0.3;
   scene.add(objs.laser, objs.dot);
 }
@@ -337,7 +336,7 @@ function setEnvironment(name) {
   groundMat.roughness = preset.wet_ground ? 0.35 : 0.95;
   groundMat.color.set(preset.wet_ground ? 0xb8b0a8 : 0xffffff);
   rain.set(preset.rain_mm_h > 0);
-  renderer.toneMappingExposure = preset.night ? 1.4 : 0.85;
+  renderer.toneMappingExposure = preset.night ? 1.4 : 0.5;
 }
 
 // ------------------------------------------------------------------ px/m heatmap
@@ -627,6 +626,7 @@ $('rpExit').onclick = () => { if (replay?.timer) clearInterval(replay.timer); re
 
 // ------------------------------------------------------------------ start
 site = await api('/api/site');
+if (site.render?.width) $('video').style.aspectRatio = `${site.render.width} / ${site.render.height}`;
 buildSite(site); buildPanels(site); applyQuality(); setEnvironment('clear'); connect(); startVideo();
 refreshHud(); setInterval(refreshHud, 10000);
 buildProducts().catch(e => toast(e.message)); loadRuns().catch(() => {});

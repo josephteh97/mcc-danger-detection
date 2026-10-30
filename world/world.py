@@ -244,6 +244,9 @@ class World:
             pc = _clip_near((quad - self.cam.pos) @ self.cam.R.T)
             if len(pc) < 3:
                 continue
+            if self.lens is not None:                   # bend every edge, the clipped ones too
+                t = np.linspace(0, 1, 16, endpoint=False)[:, None]
+                pc = np.vstack([a + t * (b - a) for a, b in zip(pc, np.roll(pc, -1, axis=0))])
             uv = np.stack([self.cam.fx * pc[:, 0] / pc[:, 2] + self.cam.cx,
                            self.cam.fx * pc[:, 1] / pc[:, 2] + self.cam.cy], 1)
             if self.lens is not None:

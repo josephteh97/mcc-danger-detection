@@ -46,15 +46,15 @@
 
 ## 7. Faults
 
-- [ ] 7.1 Switch hang, router-driven restart, AI box hang with PoE watchdog, site power cut in the dashboard fault table
-- [ ] 7.2 Verify: U24 and U25 pass; live recovery scenarios added to `tests/test_stack.py` pass
+- [x] 7.1 Switch hang, router-driven restart, AI box hang with PoE watchdog, site power cut in the dashboard fault table
+- [x] 7.2 Verify: U24 and U25 pass; live recovery scenarios added to `tests/test_stack.py` pass
 
 ## 8. Remote access
 
 - [x] 8.1 Check `share.sh` already matches the updated spec (options refused while sharing, lock, failed-start clean-up); add tests for the three new scenarios
-- [ ] 8.2 Add a Tailscale-node emulator on the router (`wan_4g` + `poe_lan`, subnet route `192.168.10.0/24`) and engineer and superior client containers
-- [ ] 8.3 Add the cloud relay emulator that the AI box connects out to; no inbound port on the router's 4G side
-- [ ] 8.4 Verify: engineer SSH to the AI box succeeds, superior cannot reach `poe_lan`, the 4G scan finds no open port, and remote switch restart works during a switch hang
+- [x] 8.2 Add a Tailscale-node emulator on the router (`wan_4g` + `poe_lan`, subnet route `192.168.10.0/24`) and engineer and superior client containers
+- [x] 8.3 Add the cloud relay emulator that the AI box connects out to; no inbound port on the router's 4G side
+- [x] 8.4 Verify: engineer SSH to the AI box succeeds, superior cannot reach `poe_lan`, the 4G scan finds no open port, and remote switch restart works during a switch hang
 
 ## 9. Rendering
 

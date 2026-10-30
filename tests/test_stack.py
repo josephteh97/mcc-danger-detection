@@ -258,10 +258,16 @@ def test_trial_walk_in_via_dashboard(stack):
     stack.wait_monitoring()
     t0 = time.time()
     with connect(DASHBOARD_WS) as ws:
-        _hold_keys(ws, ["down"], 4.5)          # from (6, -6) toward the camera, south of the pit
-        _hold_keys(ws, ["left"], 1.2)          # step into the 1.5 m zone
-        time.sleep(5.0)                        # stand by the pit
-        _hold_keys(ws, ["up"], 4.0)            # walk away from the camera, out of the zone
+        if stack.profile == "v11":             # camera south of the pit: up is north
+            _hold_keys(ws, ["left"], 4.3)      # from (6, -6) to below the pit
+            _hold_keys(ws, ["up"], 3.0)        # north, into the 1.5 m zone
+            time.sleep(5.0)                    # stand by the pit
+            _hold_keys(ws, ["down"], 4.0)      # back toward the camera, out of the zone
+        else:
+            _hold_keys(ws, ["down"], 4.5)      # from (6, -6) toward the camera, south of the pit
+            _hold_keys(ws, ["left"], 1.2)      # step into the 1.5 m zone
+            time.sleep(5.0)                    # stand by the pit
+            _hold_keys(ws, ["up"], 4.0)        # walk away from the camera, out of the zone
     time.sleep(3.0)
     kinds = [e["kind"] for e in stack.state()["events"] if e.get("ts", 0) >= t0 and e.get("kind") != "health"]
     print(f"trial walk-in via the dashboard: {kinds}")
@@ -336,8 +342,8 @@ def test_v11_watchdog_recovers_ai_box_hang(v11):
         if c.status == "paused":
             c.unpause()
     t_cycle = ev["ts"] - t0
-    after = stack.wait_for(lambda: (s := stack.orin_status()) and s["ts"] > ev["ts"] and s.get("state") == "monitoring" and s,
-                           60, 0.5, "Monitoring after the watchdog")
+    after = stack.wait_for(lambda: (s := stack.orin_status()) and s["ts"] > ev["ts"] and s["uptime_s"] < s["ts"] - ev["ts"]
+                           and s.get("state") == "monitoring" and s, 60, 0.5, "Monitoring after the watchdog (a fresh boot)")
     print(f"watchdog: power cycle {t_cycle:.0f} s after the hang, Monitoring {after['ts'] - ev['ts']:.0f} s after that")
     assert t_cycle <= 40 and after["ts"] - ev["ts"] <= 60
 

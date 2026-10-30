@@ -50,7 +50,12 @@ class Stack:
         return self.dk.containers.get(f"{PROJECT}-{service}-1")
 
     def sh(self, service, cmd):
-        res = self.c(service).exec_run(["sh", "-c", cmd])
+        """(exit code, output); (None, "") while the container is not running (power cycle, pause)."""
+        import docker
+        try:
+            res = self.c(service).exec_run(["sh", "-c", cmd])
+        except docker.errors.APIError:
+            return None, ""
         return res.exit_code, res.output.decode(errors="replace")
 
     def state(self):
