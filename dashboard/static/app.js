@@ -377,7 +377,19 @@ renderer.setAnimationLoop(() => {
   rain.step(dt, 1.5);
   if (QUALITY[quality].bloom) composer.render(); else renderer.render(scene, cam3);
   frames++;
-  if (now - fpsT > 1000) { $('fps').textContent = `${Math.round(frames * 1000 / (now - fpsT))} fps`; frames = 0; fpsT = now; }
+  if (now - fpsT > 1000) {
+    const c = renderer.domElement, line = `${Math.round(frames * 1000 / (now - fpsT))} fps at ${c.width}×${c.height} (${quality})`;
+    $('fps').textContent = line; $('fsfps').textContent = line; frames = 0; fpsT = now;
+  }
+});
+
+$('fullscreen').onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else view.requestFullscreen().catch(e => toast(`full screen refused: ${e.message}`));
+};
+document.addEventListener('fullscreenchange', () => {
+  $('fullscreen').textContent = document.fullscreenElement ? '✕ leave full screen' : '⛶ full screen';
+  resize();
 });
 
 // ------------------------------------------------------------------ HUD
