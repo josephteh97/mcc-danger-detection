@@ -23,7 +23,20 @@ DEVTUNNEL=${DEVTUNNEL:-$(command -v devtunnel || echo "$HOME/bin/devtunnel")}
 say()  { printf '%s\n' "$*"; }
 fail() { printf 'share.sh: %s\n' "$*" >&2; exit 1; }
 dt()   { "$DEVTUNNEL" "$@"; }
-json() { python3 -c 'import json, sys; d = json.load(sys.stdin); print(eval(sys.argv[1]))' "$1"; }
+json() {                    # evaluate a Python expression over the JSON on stdin (as d); one line on failure
+  python3 -c '
+import json, sys
+try: d = json.load(sys.stdin); print(eval(sys.argv[1]))
+except (ValueError, KeyError, TypeError) as e: sys.exit("share.sh: devtunnel returned no usable JSON (%s)" % type(e).__name__)' "$1"
+}
+optval() {                  # $1 option, $2 its value, $3 an example; a missing value or another flag is refused
+  [[ -n "$2" && "$2" != -* ]] || fail "$1 needs a value, for example $1 $3"
+}
+lock() {                    # one start or stop at a time (locks this script file; no extra state)
+  command -v flock >/dev/null || return 0
+  exec 9<"$ROOT/share.sh"
+  flock -n 9 || fail "another ./share.sh start or stop is running"
+}
 
 usage() {
   cat >&2 <<EOF
@@ -68,7 +81,7 @@ tunnel_url() { cat "$STATE/url" 2>/dev/null; }
 host_pid() {                # the recorded host process, only while it is still 'devtunnel host'
   local pid
   pid=$(cat "$STATE/host.pid" 2>/dev/null) || return 1
-  ps -p "$pid" -o args= 2>/dev/null | grep -q 'devtunnel.* host ' && echo "$pid"
+  ps -ww -p "$pid" -o args= 2>/dev/null | grep -qF -- "$DEVTUNNEL host " && echo "$pid"
 }
 
 stop_host() {
@@ -80,8 +93,14 @@ stop_host() {
   say "Stopped hosting (pid $pid)."
 }
 
-abort_start() {             # EXIT trap while start is half done: undo everything it created
-  say "Start failed; removing tunnel $1." >&2; stop_host; delete_tunnel "$1" >&2 || true; rm -rf "$STATE"
+abort_start() {             # EXIT trap while start is half done: stop the host, delete the tunnel
+  set +e; trap - EXIT       # best effort from here: one failed write must not skip the rest
+  local id; id=$(tunnel_id)
+  [ -s "$STATE/host.log" ] && { echo "--- last lines of .share/host.log"; tail -20 "$STATE/host.log"; } >&2
+  echo "Start failed; removing tunnel $id." >&2
+  stop_host >&2
+  if [ -z "$id" ] || delete_tunnel "$id" >&2; then rm -rf "$STATE"
+  else echo "Kept .share/ so that ./share.sh stop can retry deleting $id." >&2; fi
 }
 
 delete_tunnel() {           # 0 when the tunnel is gone afterwards
@@ -102,24 +121,32 @@ leftovers() {               # twin tunnels in this account that the state does n
 }
 
 # ------------------------------------------------------------------ checks through the tunnel
-anonymous_check() {         # prints a verdict; returns 1 if an anonymous request reaches the dashboard
-  local out code body
-  out=$(curl -sS -m 20 -w '\n%{http_code}' "$1/healthz" 2>/dev/null) || { echo "could not reach $1"; return 0; }
-  code=${out##*$'\n'}; body=${out%$'\n'*}
-  if [ "$code" = 200 ] && [ "$body" = ok ]; then
-    echo "OPEN: an anonymous request reached the dashboard"; return 1
-  fi
-  echo "required: an anonymous request gets HTTP $code, not the dashboard"
+anonymous_check() {         # prints a verdict; returns 0 if sign-in is required, 1 if open, 2 if unknown
+  local out code="no response" body try
+  for try in 1 2 3 4 5; do  # a fresh host can answer 502 or time out at first
+    [ "$try" = 1 ] || sleep 2
+    out=$(curl -sS -m 20 -w '\n%{http_code}' "$1/healthz" 2>/dev/null) || { code="no response"; continue; }
+    code=${out##*$'\n'}; body=${out%$'\n'*}
+    if [ "$code" = 200 ] && [ "$body" = ok ]; then
+      echo "OPEN: an anonymous request reached the dashboard"; return 1
+    fi
+    case "$code" in
+      302|307|401|403) echo "required: an anonymous request gets HTTP $code, not the dashboard"; return 0 ;;
+    esac
+    code="HTTP $code"
+  done
+  echo "could not verify sign-in through $1 (last answer: $code)"; return 2
 }
 
 signed_in_check() {         # the page, the API and the browser video, as a client with a connect token
-  local token hdr
+  local token hdr playlist
   token=$(dt token "$1" --scopes connect -j 2>/dev/null | json 'd["token"]' 2>/dev/null) \
     || { echo "could not get a connect token to check"; return 1; }
   hdr="X-Tunnel-Authorization: tunnel $token"           # sent on stdin, never on a command line
   printf '%s\n' "$hdr" | curl -fsS -m 20 -H @- -o /dev/null "$2/" 2>/dev/null \
     || { echo "the dashboard page did not load through the tunnel"; return 1; }
-  printf '%s\n' "$hdr" | curl -fsS -m 20 -H @- "$2/video/stream1/index.m3u8" 2>/dev/null | grep -q '^#EXTM3U' \
+  playlist=$(printf '%s\n' "$hdr" | curl -fsS -m 20 -H @- "$2/video/stream1/index.m3u8" 2>/dev/null) \
+    && grep -q '^#EXTM3U' <<<"$playlist" \
     || { echo "the video stream did not load through the tunnel"; return 1; }
   echo "the dashboard and its video stream load through the tunnel"
 }
@@ -142,22 +169,28 @@ show() {
 }
 
 cmd_start() {
-  local repo="" tenant=0 owner_only=0 expires="" orgs=()
+  local repo="" tenant=0 owner_only=0 expires="" orgs=() given=$#
   while [ $# -gt 0 ]; do
     case "$1" in
-      --repo)       repo=${2:?--repo needs owner/repo}; shift 2 ;;
-      --org)        orgs+=("${2:?--org needs a GitHub organization}"); shift 2 ;;
+      --repo)       optval "$1" "${2:-}" owner/repo; repo=$2; shift 2 ;;
+      --org)        optval "$1" "${2:-}" my-github-org; orgs+=("$2"); shift 2 ;;
       --tenant)     tenant=1; shift ;;
       --owner-only) owner_only=1; shift ;;
-      --expires)    expires=${2:?--expires needs a duration such as 8h or 2d}; shift 2 ;;
+      --expires)    optval "$1" "${2:-}" 8h; expires=$2; shift 2 ;;
       -a|--allow-anonymous|--anonymous)
         fail "anonymous access is never allowed: the dashboard can inject faults, move workers and
   control Docker on this host. Viewers sign in instead; widen access with --org or --tenant." ;;
       *) usage ;;
     esac
   done
-  [[ -z "$expires" || "$expires" =~ ^[0-9]+[hd]$ ]] || fail "--expires takes hours or days, for example 8h or 2d"
-  # No default repo rule: devtunnel rejects --repo rules (design D16).
+  if [ -n "$expires" ]; then  # devtunnel accepts 1h to 30d, but only checks once the tunnel exists
+    local hours
+    [[ "$expires" =~ ^([0-9]{1,4})([hd])$ ]] && hours=$((10#${BASH_REMATCH[1]})) \
+      || fail "--expires takes 1h to 30d, for example 8h or 2d"
+    [ "${BASH_REMATCH[2]}" = h ] || hours=$((hours * 24))
+    [ "$hours" -ge 1 ] && [ "$hours" -le 720 ] || fail "--expires takes 1h to 30d, for example 8h or 2d"
+  fi
+  # No default repo rule: devtunnel 1.0.2115 and earlier reject every --repo rule (design D16).
   if [ "$owner_only" = 1 ]; then
     [ -z "$repo" ] && [ ${#orgs[@]} = 0 ] && [ "$tenant" = 0 ] || fail "--owner-only cannot be combined with --repo, --org or --tenant"
   fi
@@ -168,8 +201,16 @@ cmd_start() {
 
   local pid id url
   if pid=$(host_pid); then
+    [ "$given" = 0 ] || fail "already sharing, so these options would not apply. To change who can sign in
+  or the expiry, run ./share.sh stop first."
     say "Already sharing; no new tunnel created."
     show "$(tunnel_id)" "$(tunnel_url)" "$pid"
+    local rc=0
+    anonymous_check "$(tunnel_url)" >/dev/null || rc=$?
+    if [ "$rc" = 1 ]; then
+      cmd_stop >&2
+      fail "the running tunnel let an anonymous request through, so it has been taken down"
+    fi
     return 0
   fi
   if id=$(tunnel_id); then  # a host that died earlier: remove its tunnel, then start clean
@@ -178,19 +219,23 @@ cmd_start() {
   fi
   rm -rf "$STATE"; mkdir -p "$STATE"
 
+  # Choose the id first and record it before creating, so the trap can clean up from here on.
   local out
-  out=$(dt create --labels "$LABEL" -d "Danger-zone twin dashboard (share.sh)" ${expires:+--expiration "$expires"} -j 2>&1) || true
-  id=$(json 'd["tunnel"]["tunnelId"]' <<<"$out" 2>/dev/null) || fail "could not create a tunnel; devtunnel said:
-$out"
+  id="twin-$(date +%s)-$RANDOM"
   echo "$id" > "$STATE/tunnel"
-  trap "abort_start $id" EXIT
+  trap abort_start EXIT
+  out=$(dt create "$id" --labels "$LABEL" -d "Danger-zone twin dashboard (share.sh)" ${expires:+--expiration "$expires"} \
+        -j 2>"$STATE/err") || fail "could not create a tunnel: $(cat "$STATE/err")"
+  id=$(json 'd["tunnel"]["tunnelId"]' <<<"$out")          # the full id, with its cluster suffix
+  echo "$id" > "$STATE/tunnel"
 
   dt port create "$id" -p "$PORT" --protocol http >/dev/null
   local who=("the tunnel owner (you)")
   if [ -n "$repo" ]; then
     out=$(dt access create "$id" --repo "$repo" ${expires:+-e "$expires"} 2>&1) || fail "could not add the access rule for $repo:
 $(head -3 <<<"$out")
-  devtunnel may reject --repo rules (design D16). Share without it: ./share.sh start, or use --org / --tenant"
+  devtunnel 1.0.2115 and earlier reject --repo rules. Share without it: ./share.sh start (only you can
+  sign in), or use --org <github-org> / --tenant"
     who+=("GitHub accounts with access to $repo")
   fi
   for org in "${orgs[@]}"; do
@@ -210,13 +255,14 @@ $(head -3 <<<"$out")
 
   nohup setsid "$DEVTUNNEL" host "$id" > "$STATE/host.log" 2>&1 < /dev/null &
   echo $! > "$STATE/host.pid"
+  local ready=0                                         # failures print host.log from abort_start
   for _ in $(seq 1 60); do
     url=$(grep -oE "https://[^ ,]+-$PORT\.[^ ,]+devtunnels\.ms" "$STATE/host.log" | head -1 || true)
-    [ -n "$url" ] && grep -q 'Ready to accept connections' "$STATE/host.log" && break
-    host_pid >/dev/null || { cat "$STATE/host.log" >&2; fail "devtunnel host exited"; }
+    [ -n "$url" ] && grep -q 'Ready to accept connections' "$STATE/host.log" && { ready=1; break; }
+    host_pid >/dev/null || fail "devtunnel host exited"
     sleep 0.5
   done
-  [ -n "$url" ] || { cat "$STATE/host.log" >&2; fail "no URL from devtunnel host after 30 s"; }
+  [ "$ready" = 1 ] || fail "devtunnel host was not ready after 30 s"
   echo "$url" > "$STATE/url"
 
   local verdict check
@@ -274,8 +320,8 @@ cmd_stop() {
 }
 
 case "${1:-}" in
-  start)  shift; cmd_start "$@" ;;
+  start)  shift; lock; cmd_start "$@" ;;
   status) shift; [ $# = 0 ] || usage; cmd_status ;;
-  stop)   shift; [ $# = 0 ] || usage; cmd_stop ;;
+  stop)   shift; [ $# = 0 ] || usage; lock; cmd_stop ;;
   *)      usage ;;
 esac

@@ -127,6 +127,8 @@ docker compose up -d --build     # the dashboard must answer on 127.0.0.1:8080
 | `--owner-only` | only you |
 | `--expires 8h` | the access rules and the tunnel expire after that time (1h to 30d); without it they last until `stop` |
 
+Options apply only when a new tunnel is created: while sharing is on, `start` with options is refused, so run `stop` first to change access or expiry.
+
 The dashboard stays published on `127.0.0.1:8080` only. The tunnel connects to it locally, and nobody on your network can reach it without signing in. If `DASHBOARD_BIND` also puts the dashboard on another address, `share.sh` warns about it.
 
 `.share/` (git-ignored) holds the tunnel ID, the URL, the host's process ID and `host.log`.
