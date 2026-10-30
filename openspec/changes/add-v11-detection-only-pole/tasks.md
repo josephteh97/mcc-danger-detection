@@ -64,7 +64,7 @@
 - [x] 9.4 Dashboard: PBR, tone mapping, sky and sun, soft shadows, rain and haze, floodlight cone
 - [x] 9.5 Dashboard: rigged workers, wheeled stand and solar skid, true frustum, laser glow
 - [x] 9.6 Dashboard: px/m heatmap, HUD panels, quality presets
-- [ ] 9.7 Verify: ffprobe shows 1600×1200 H.264 yuv420p in v11; medium preset ≥ 30 fps at 1080p on integrated graphics
+- [x] 9.7 Verify: ffprobe shows 1600×1200 H.264 yuv420p in v11; medium preset ≥ 30 fps at 1080p on integrated graphics
 
 ## 10. Trial mode
 

@@ -29,8 +29,8 @@ const store = {
 // ------------------------------------------------------------------ renderer and quality presets
 const QUALITY = {
   low: { shadows: false, bloom: false, rain: 0, ratio: 1, shadowSize: 512 },
-  medium: { shadows: true, bloom: true, rain: 1500, ratio: 1, shadowSize: 1024 },
-  high: { shadows: true, bloom: true, rain: 4000, ratio: Math.min(2, window.devicePixelRatio), shadowSize: 2048 },
+  medium: { shadows: true, bloom: true, rain: 1500, ratio: 1, shadowSize: 2048 },
+  high: { shadows: true, bloom: true, rain: 4000, ratio: Math.min(2, window.devicePixelRatio), shadowSize: 4096 },
 };
 let quality = QUALITY[store.get('twin.quality', 'medium')] ? store.get('twin.quality', 'medium') : 'medium';
 $('quality').value = quality;
@@ -50,8 +50,9 @@ controls.maxPolarAngle = 88 * DEG;
 
 const hemi = new THREE.HemisphereLight(0xdfe9ff, 0x4a3b2c, 0.6);
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-sun.shadow.camera.left = -16; sun.shadow.camera.right = 16; sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
-sun.shadow.camera.far = 120; sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
+sun.shadow.camera.left = -32; sun.shadow.camera.right = 32; sun.shadow.camera.top = 32; sun.shadow.camera.bottom = -32;
+sun.shadow.camera.far = 260;     // covers the whole site even with a low sun (long shadows)
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
 scene.add(hemi, sun, sun.target);
 const sky = new Sky(); sky.scale.setScalar(450); scene.add(sky);
 sky.material.uniforms.turbidity.value = 6; sky.material.uniforms.rayleigh.value = 1.6;
@@ -130,7 +131,7 @@ const groundMat = std(0xffffff, { map: mudTexture(), roughness: 0.95 });
 function buildSite(s) {
   const xs = s.boundary.map(p => p[0]), ys = s.boundary.map(p => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const w = x1 - x0 + 30, h = y1 - y0 + 30;
+  const w = 400, h = 400;                                   // runs out to the horizon, no visible edge
   groundMat.map.repeat.set(w / 6, h / 6);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), groundMat);
   ground.rotation.x = -Math.PI / 2; ground.position.copy(P((x0 + x1) / 2, (y0 + y1) / 2, 0)); ground.receiveShadow = true;
@@ -325,7 +326,7 @@ function setEnvironment(name) {
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, (90 - elev) * DEG, az * DEG);
   sky.material.uniforms.sunPosition.value.copy(sunDir);
   sky.visible = !preset.night;
-  sun.position.copy(sunDir.clone().multiplyScalar(60)); sun.target.position.set(0, 0, 0);
+  sun.position.copy(sunDir.clone().multiplyScalar(120)); sun.target.position.set(0, 0, 0);
   const overcast = 1 - Math.min(1, preset.light);
   sun.intensity = preset.night ? 0.05 : 2.4 * Math.max(0.15, preset.light);
   hemi.intensity = preset.night ? 0.08 : 0.35 + 0.35 * (1 - overcast);
