@@ -75,4 +75,4 @@
 
 - [x] 11.1 `tests/smoke_v11.py` with U11–U26 using `tests/_check.py`
 - [x] 11.2 Update README check counts (53 checks, 52 PASS + V11 known fail)
-- [ ] 11.3 Verify: full six-script chain; `openspec validate add-v11-detection-only-pole --strict`
+- [x] 11.3 Verify: full six-script chain; `openspec validate add-v11-detection-only-pole --strict`
