@@ -34,7 +34,7 @@ optval() {                  # $1 option, $2 its value, $3 an example; a missing 
 }
 lock() {                    # one start or stop at a time (locks this script file; no extra state)
   command -v flock >/dev/null || return 0
-  exec 9<"$ROOT/share.sh"
+  exec 9<"${BASH_SOURCE[0]}"
   flock -n 9 || fail "another ./share.sh start or stop is running"
 }
 
@@ -152,8 +152,8 @@ signed_in_check() {         # the page, the API and the browser video, as a clie
 }
 
 # ------------------------------------------------------------------ commands
-show() {
-  local id=$1 url=$2 pid=$3
+show() {                    # returns 1 if an anonymous request reached the dashboard
+  local id=$1 url=$2 pid=$3 verdict open=0
   say "  URL       $url"
   say "  Tunnel    $id (host pid $pid, log .share/host.log)"
   if logged_in; then
@@ -163,9 +163,11 @@ show() {
   else
     say "  Ports and access rules: log in to see them (devtunnel user login -g)"
   fi
-  say "  Sign-in   $(anonymous_check "$url" || true)"
+  verdict=$(anonymous_check "$url") || { [ $? != 1 ] || open=1; }
+  say "  Sign-in   $verdict"
   logged_in && say "  Check     $(signed_in_check "$id" "$url" || true)"
   warn_if_lan_exposed
+  return "$open"
 }
 
 cmd_start() {
@@ -184,11 +186,12 @@ cmd_start() {
     esac
   done
   if [ -n "$expires" ]; then  # devtunnel accepts 1h to 30d, but only checks once the tunnel exists
-    local hours
-    [[ "$expires" =~ ^([0-9]{1,4})([hd])$ ]] && hours=$((10#${BASH_REMATCH[1]})) \
-      || fail "--expires takes 1h to 30d, for example 8h or 2d"
-    [ "${BASH_REMATCH[2]}" = h ] || hours=$((hours * 24))
-    [ "$hours" -ge 1 ] && [ "$hours" -le 720 ] || fail "--expires takes 1h to 30d, for example 8h or 2d"
+    local hours=0 per=1
+    if [[ "$expires" =~ ^([0-9]{1,4})([hd])$ ]]; then
+      [ "${BASH_REMATCH[2]}" = h ] || per=24
+      hours=$((10#${BASH_REMATCH[1]} * per))
+    fi
+    (( hours >= 1 && hours <= 720 )) || fail "--expires takes 1h to 30d, for example 8h or 2d"
   fi
   # No default repo rule: devtunnel 1.0.2115 and earlier reject every --repo rule (design D16).
   if [ "$owner_only" = 1 ]; then
@@ -204,13 +207,10 @@ cmd_start() {
     [ "$given" = 0 ] || fail "already sharing, so these options would not apply. To change who can sign in
   or the expiry, run ./share.sh stop first."
     say "Already sharing; no new tunnel created."
-    show "$(tunnel_id)" "$(tunnel_url)" "$pid"
-    local rc=0
-    anonymous_check "$(tunnel_url)" >/dev/null || rc=$?
-    if [ "$rc" = 1 ]; then
+    show "$(tunnel_id)" "$(tunnel_url)" "$pid" || {
       cmd_stop >&2
       fail "the running tunnel let an anonymous request through, so it has been taken down"
-    fi
+    }
     return 0
   fi
   if id=$(tunnel_id); then  # a host that died earlier: remove its tunnel, then start clean
@@ -297,7 +297,7 @@ cmd_status() {
     return 1
   fi
   say "Sharing is on."
-  show "$id" "$url" "$pid"
+  show "$id" "$url" "$pid" || true            # status reports an open tunnel; start takes it down
 }
 
 cmd_stop() {
