@@ -51,3 +51,14 @@ def test_pdpa_gate_stops_start_up():
 
 def test_stub_needs_no_pdpa():
     check_pdpa(StubProvider, {})
+
+
+def test_ptz_re_added_fits_the_poe_budget():
+    """Identification on, PTZ on a spare port: the PoE check includes its class reservation."""
+    import catalog
+    from devices.poe_model import check as poe_check
+    site = catalog.load_site(profile="v11")
+    extra = [{"port": 6, "category": "camera", "product": "ptz_4mp_25x_hik_ds2de4425iwde"}]
+    off = poe_check(site, include_legacy=False, extra=extra)
+    on = poe_check(site, include_legacy=True, extra=extra)
+    assert on["reserved_w"] == off["reserved_w"] + 30.0 and on["ok"]

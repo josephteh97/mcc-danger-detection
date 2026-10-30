@@ -39,10 +39,10 @@
 
 ## 6. Pole network and power
 
-- [ ] 6.1 `devices/poe_model.py` port map, draw and class reservation
-- [ ] 6.2 `tools/network.py` per-link load and monthly 4G data
-- [ ] 6.3 `devices/power_model.py --profile v11 --plan A|B|C` with conversion losses, socket schedule, monitor alerts and two-stage shutdown with hysteresis
-- [ ] 6.4 Verify: U17–U23 pass; V10 and V11 unchanged
+- [x] 6.1 `devices/poe_model.py` port map, draw and class reservation
+- [x] 6.2 `tools/network.py` per-link load and monthly 4G data
+- [x] 6.3 `devices/power_model.py --profile v11 --plan A|B|C` with conversion losses, socket schedule, monitor alerts and two-stage shutdown with hysteresis
+- [x] 6.4 Verify: U17–U23 pass; V10 and V11 unchanged
 
 ## 7. Faults
 

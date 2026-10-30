@@ -74,6 +74,71 @@ def u16():
         "at 5 m the warning ring's near corners fall outside the image and the pose is flagged"
 
 
+# --------------------------------------------------------------------------- network and power (U17-U23)
+
+@check("U17", "PoE budget")
+def u17():
+    from devices.poe_model import check as poe_check
+    r = poe_check(SITE)
+    ok = r["ok"] and near(r["reserved_w"], 135.4, 0.05) and near(r["draw_w"], 88, 5)
+    return ok, f"reserved {r['reserved_w']:.1f} W, draw up to {r['draw_w']:.1f} W of {r['budget_w']:.0f} W", \
+        "reserved 135.4 W, draw 88 ± 5 W, within the 240 W budget"
+
+
+@check("U18", "Undersized switch fails as expected")
+def u18():
+    from devices.poe_model import check as poe_check
+    r = poe_check(SITE, budget_w=90)
+    return not r["ok"] and r["refused"], f"90 W switch: refused {'; '.join(r['refused']) or 'nothing'}", \
+        "the check fails on reserved power and names the refused ports"
+
+
+@check("U19", "4G data a month")
+def u19():
+    from tools.network import report
+    r = report(SITE, events_per_day=50, clip_mb=1.3, view_hours_per_day=1.0, view_mbps=1.0)
+    ok = near(r["data"]["total_gb"], 15, 1) and r["within_plan"] and r["max_link_pct"] < 5
+    return ok, (f"{r['data']['total_gb']:.1f} GB a month of {r['plan_gb']:.0f} GB, "
+                f"busiest wired link {r['max_link_pct']:.1f}% at cap"), \
+        "15 ± 1 GB a month within the plan, every wired link below 5% load"
+
+
+@check("U20", "PoE++ losses")
+def u20():
+    from devices.poe_model import efficiencies
+    from devices.power_model import bus_watts
+    w = bus_watts(25.0, efficiencies(SITE), via_splitter=True)
+    return near(w, 30.5, 0.5), f"25 W at the AI box takes {w:.2f} W from the bus", "30.5 ± 0.5 W"
+
+
+@check("U21", "Continuous load")
+def u21():
+    from devices.power_model import V11PowerConfig
+    w = V11PowerConfig.from_site(SITE, "B").average_load_w()
+    return 65 <= w <= 75, f"average bus load {w:.1f} W with no alarms", "between 65 and 75 W"
+
+
+@check("U22", "Plan B, three heavily overcast days")
+def u22():
+    from devices.power_model import V11PowerConfig, describe, simulate_v11
+    r = simulate_v11(V11PowerConfig.from_site(SITE, "B"), [0.3] * 3)
+    ok = r["lowest_pct"] > 10 and not r["stage2"]
+    return ok, f"lowest charge {describe(r['lowest_pct'])}, Stage 2 {'triggered' if r['stage2'] else 'never'}", \
+        "stays above 10% and Stage 2 never triggers"
+
+
+@check("U23", "Plan A weekend shutdown order")
+def u23():
+    from devices.power_model import V11PowerConfig, simulate_v11
+    r = simulate_v11(V11PowerConfig.from_site(SITE, "A"), [1.0] * 3, socket_off=[(0, 60)])
+    order = [e for _, e in r["events"] if e.startswith(("Stage 1:", "Stage 2:"))]
+    ok = len(order) >= 2 and order[0].startswith("Stage 1") and order[1].startswith("Stage 2") \
+        and r["router_hours_after_stage2"] >= 10
+    return ok, (f"socket off 60 h: {' then '.join(o.split(':')[0] for o in order) or 'no stage'}, router on "
+                f"{r['router_hours_after_stage2']:.1f} h after Stage 2, {r['hours_without_alarm']:.1f} h without an alarm"), \
+        "Stage 1 then Stage 2, router on at least 10 h after Stage 2, hours without an alarm reported"
+
+
 # --------------------------------------------------------------------------- laser reach (U26)
 
 @check("U26", "Laser reach")
