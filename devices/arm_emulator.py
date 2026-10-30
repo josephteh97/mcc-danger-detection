@@ -77,12 +77,12 @@ class ArmModel:
                 "watchdog": self.watchdog}
 
 
-def serve(link, state_path=None, run_for=None):
-    from vserial import JsonlState, VirtualSerial
-    port, log = VirtualSerial(link), JsonlState(state_path)
+def serve(link, state_path=None, run_for=None, tcp=None):
+    from vserial import JsonlState, open_port
+    port, log = open_port(link, tcp), JsonlState(state_path)
     now = time.monotonic()
     arm, next_pos, end = ArmModel(now), now, None if run_for is None else now + run_for
-    print(f"arm emulator on {link}", flush=True)
+    print(f"arm emulator on {link or port.addr}", flush=True)
     try:
         while end is None or time.monotonic() < end:
             now = time.monotonic()
@@ -104,9 +104,12 @@ def serve(link, state_path=None, run_for=None):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--link", required=True, help="path where the virtual serial port appears")
+    ap.add_argument("--link", help="path where the virtual serial port appears")
+    ap.add_argument("--tcp", metavar="HOST:PORT", help="listen on TCP instead (the v11 laser controller on poe_lan)")
     ap.add_argument("--state", help="JSONL file for the arm state (read by the dashboard)")
     ap.add_argument("--run-for", type=float, help="exit after this many seconds (tests)")
     a = ap.parse_args()
     sys.path.insert(0, __import__("os").path.dirname(__file__))
-    serve(a.link, a.state, a.run_for)
+    if not (a.link or a.tcp):
+        ap.error("give --link or --tcp")
+    serve(a.link, a.state, a.run_for, a.tcp)

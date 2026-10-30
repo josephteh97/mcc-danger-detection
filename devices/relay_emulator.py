@@ -35,11 +35,11 @@ class RelayBoard:
         return {"t": time.time(), **{NAMES[ch]: int(v) for ch, v in self.on.items()}}
 
 
-def serve(link, state_path=None, run_for=None):
-    from vserial import JsonlState, VirtualSerial
-    port, log, board = VirtualSerial(link), JsonlState(state_path, every_s=5.0), RelayBoard()
+def serve(link, state_path=None, run_for=None, tcp=None):
+    from vserial import JsonlState, open_port
+    port, log, board = open_port(link, tcp), JsonlState(state_path, every_s=5.0), RelayBoard()
     end = None if run_for is None else time.monotonic() + run_for
-    print(f"relay emulator on {link}", flush=True)
+    print(f"relay emulator on {link or port.addr}", flush=True)
     log.write(board.state(), tuple(board.on.values()))
     try:
         while end is None or time.monotonic() < end:
@@ -54,9 +54,12 @@ def serve(link, state_path=None, run_for=None):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--link", required=True)
+    ap.add_argument("--link")
+    ap.add_argument("--tcp", metavar="HOST:PORT", help="listen on TCP instead (the v11 laser controller on poe_lan)")
     ap.add_argument("--state", help="JSONL file for the relay state (read by the dashboard)")
     ap.add_argument("--run-for", type=float)
     a = ap.parse_args()
     sys.path.insert(0, os.path.dirname(__file__))
-    serve(a.link, a.state, a.run_for)
+    if not (a.link or a.tcp):
+        ap.error("give --link or --tcp")
+    serve(a.link, a.state, a.run_for, a.tcp)

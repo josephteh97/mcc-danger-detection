@@ -73,3 +73,27 @@ def test_orin_image_has_pulseaudio_daemon():
     """'pulseaudio-utils' has only the clients; without the daemon the horn sink never exists."""
     assert re.search(r"\bpulseaudio\b(?!-)", " ".join(_code(_read("orin/Dockerfile"))))
     assert any("module-null-sink sink_name=horn" in line for line in _code(_read("orin/entrypoint.sh")))
+
+
+def _config(*files):
+    out = subprocess.run(["docker", "compose", *sum((["-f", os.path.join(ROOT, f)] for f in files), []),
+                          "config", "--format", "json"], capture_output=True, text=True, cwd=ROOT)
+    if out.returncode:
+        import pytest
+        pytest.skip(f"docker compose config unavailable: {out.stderr.strip()[:120]}")
+    import json
+    return json.loads(out.stdout)["services"]
+
+
+def test_v11_laser_controller_on_poe_lan():
+    """v11 (the default): the laser controller is on poe_lan at .24 and nothing uses usb_bus."""
+    svc = _config("compose.yaml")
+    assert svc["devices"]["networks"] == {"poe_lan": {"ipv4_address": "192.168.10.24"}}
+    assert not [name for name, s in svc.items() if "usb_bus" in (s.get("networks") or {})]
+    assert all(svc[n]["environment"]["TWIN_PROFILE"] == "v11" for n in ("world", "calib", "orin", "dashboard"))
+
+
+def test_phase1_override_restores_usb_cables():
+    svc = _config("compose.yaml", "compose.phase1.yaml")
+    assert set(svc["devices"]["networks"]) == {"usb_bus"} and "usb_bus" in svc["orin"]["networks"]
+    assert all(svc[n]["environment"]["TWIN_PROFILE"] == "phase1" for n in ("world", "calib", "orin", "dashboard"))

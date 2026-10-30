@@ -168,7 +168,7 @@ class TrialSession:
         if self.fsm.level >= WARNING and targets:
             pid = min(targets, key=lambda i: self.fsm.people[i].dist)
             a = self.arm_cfg
-            pan, tilt = aim_angles(a["xy"], a["heading_deg"], a["pivot_h_m"], self.feet[pid])
+            pan, tilt = aim_angles(a["xy"], a["heading_deg"], a["pivot_h_m"], self.feet[pid], a.get("tilt_stops_deg"))
             for cmd in (f"AIM {pan:.2f} {tilt:.2f}", "LASER 1", "HB"):
                 self.arm.command(cmd, self.t)
         else:

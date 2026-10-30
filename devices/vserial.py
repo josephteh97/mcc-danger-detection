@@ -56,6 +56,78 @@ class VirtualSerial:
             os.unlink(self.link)
 
 
+class TcpPort:
+    """The same interface as VirtualSerial, on a TCP listening port: the v11 laser controller's
+    Ethernet link. One client at a time; a new connection replaces the old one."""
+
+    def __init__(self, addr):
+        import socket
+        host, _, port = addr.rpartition(":")
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind((host or "0.0.0.0", int(port)))
+        self.sock.listen(4)
+        self.sock.setblocking(False)
+        self.addr, self.client, self._buf = f"{host or '0.0.0.0'}:{self.sock.getsockname()[1]}", None, b""
+
+    def _accept(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except (BlockingIOError, InterruptedError):
+                return
+            conn.setblocking(False)
+            self._drop()
+            self.client, self._buf = conn, b""
+
+    def _drop(self):
+        if self.client is not None:
+            try:
+                self.client.close()
+            except OSError:
+                pass
+        self.client = None
+
+    def readlines(self):
+        self._accept()
+        while self.client is not None:
+            try:
+                chunk = self.client.recv(4096)
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError:
+                self._drop()
+                break
+            if not chunk:                      # the app closed the link
+                self._drop()
+                break
+            self._buf += chunk
+        *lines, self._buf = self._buf.replace(b"\r", b"\n").split(b"\n")
+        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
+
+    def write_line(self, line):
+        if self.client is None:
+            return False
+        try:
+            self.client.sendall((line + "\n").encode())
+            return True
+        except OSError:
+            self._drop()
+            return False
+
+    def fileno(self):
+        return (self.client or self.sock).fileno()
+
+    def close(self):
+        self._drop()
+        self.sock.close()
+
+
+def open_port(link=None, tcp=None):
+    """A VirtualSerial at `link` (phase 1, behind socat) or a TcpPort on `tcp` (v11)."""
+    return TcpPort(tcp) if tcp else VirtualSerial(link)
+
+
 class JsonlState:
     """Append-only JSONL state log, written on change and at least every `every_s`."""
 

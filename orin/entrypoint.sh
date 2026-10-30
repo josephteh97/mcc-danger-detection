@@ -1,6 +1,9 @@
 #!/bin/sh
-# Orin sandbox: plug in the virtual USB cables, start the audio device, then start the app.
+# Orin sandbox: plug in the virtual USB cables (phase 1 only), start the audio device, then
+# start the app with the profile's config. In v11 the app reaches the laser controller over TCP
+# on poe_lan itself (app/links.py TcpLine), so there are no cables to plug in.
 set -u
+PROFILE="${TWIN_PROFILE:-v11}"
 
 plug() {   # $1 = device path, $2 = host:port of the far end; re-plugs after the cable comes back
   while true; do
@@ -8,8 +11,13 @@ plug() {   # $1 = device path, $2 = host:port of the far end; re-plugs after the
     sleep 1
   done
 }
-plug /dev/ttyARM devices:7001 &
-plug /dev/ttyRELAY devices:7002 &
+if [ "$PROFILE" = "phase1" ]; then
+  plug /dev/ttyARM devices:7001 &
+  plug /dev/ttyRELAY devices:7002 &
+  CONFIG=/opt/pole/app/config.yaml
+else
+  CONFIG=/opt/pole/app/config.$PROFILE.yaml
+fi
 
 # PulseAudio with a null sink named 'horn' (the guide's line). As root it only warns that it is
 # not meant to run as root; 'docker exec' sessions find the same daemon. A power cut here is
@@ -23,4 +31,4 @@ if [ "${TWIN_HORN_MONITOR:-0}" = "1" ]; then
 fi
 
 cd /opt/pole
-exec python3 -m app.main --config /opt/pole/app/config.yaml
+exec python3 -m app.main --config "$CONFIG"

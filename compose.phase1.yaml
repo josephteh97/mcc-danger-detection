@@ -1,0 +1,27 @@
+# The phase-1 guide's pole: the laser arm and relay board on virtual USB cables (usb_bus).
+#   docker compose -f compose.yaml -f compose.phase1.yaml up -d --build
+# Everything else is as in compose.yaml; this file only swaps the profile and the cables.
+services:
+  world:
+    environment: [TWIN_PROFILE=phase1]
+  calib:
+    environment: [TWIN_PROFILE=phase1]
+  dashboard:
+    environment: [TWIN_PROFILE=phase1]
+
+  devices:                     # arm and relay emulators; socat turns them into USB cables
+    command: >
+      sh -c "python3 devices/arm_emulator.py --link /tmp/vdev/arm --state /logs/arm.jsonl &
+             python3 devices/relay_emulator.py --link /tmp/vdev/relay --state /logs/relay.jsonl &
+             sleep 1;
+             socat TCP-LISTEN:7001,reuseaddr,fork FILE:/tmp/vdev/arm,raw,echo=0 &
+             socat TCP-LISTEN:7002,reuseaddr,fork FILE:/tmp/vdev/relay,raw,echo=0 &
+             wait"
+    networks: !override [usb_bus]
+
+  orin:
+    environment: [TWIN_PROFILE=phase1]
+    networks: !override
+      poe_lan: { ipv4_address: 192.168.10.2 }
+      usb_bus: {}
+      wan_4g: { ipv4_address: 172.30.4.2 }

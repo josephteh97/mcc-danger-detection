@@ -31,11 +31,11 @@
 
 ## 5. Ethernet laser controller
 
-- [ ] 5.1 `TcpLine` adapter in `app/links.py` with reconnect every second
-- [ ] 5.2 Arm and relay emulators listen on TCP at `192.168.10.24` in the v11 profile; compose service joins `poe_lan`
-- [ ] 5.3 Orin entrypoint skips `socat` in v11 and execs the v11 config
-- [ ] 5.4 Laser geometry: pivot below camera, 5°–45° stops, reach check
-- [ ] 5.5 Verify: U26 passes; `python3 tests/smoke_links.py` unchanged
+- [x] 5.1 `TcpLine` adapter in `app/links.py` with reconnect every second
+- [x] 5.2 Arm and relay emulators listen on TCP at `192.168.10.24` in the v11 profile; compose service joins `poe_lan`
+- [x] 5.3 Orin entrypoint skips `socat` in v11 and execs the v11 config
+- [x] 5.4 Laser geometry: pivot below camera, 5°–45° stops, reach check
+- [x] 5.5 Verify: U26 passes; `python3 tests/smoke_links.py` unchanged
 
 ## 6. Pole network and power
 

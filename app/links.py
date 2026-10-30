@@ -1,4 +1,4 @@
-"""Links from the Orin to the outside world: serial devices, laser aim angles and the
+"""Links from the Orin to the outside world: serial and TCP device lines, laser aim angles and the
 offline uplink queue. Only the adapters here change when a real device replaces an
 emulator; the protocol seen by the rest of the app stays the same.
 """
@@ -16,13 +16,16 @@ log = logging.getLogger("links")
 
 # --------------------------------------------------------------------------- aim geometry
 
-def aim_angles(arm_xy, heading_deg, pivot_h_m, target_xy):
+def aim_angles(arm_xy, heading_deg, pivot_h_m, target_xy, tilt_stops_deg=None):
     """Pan (degrees from the arm's forward direction, counter-clockwise positive) and tilt
-    (degrees below horizontal) that put the beam on target_xy at ground level."""
+    (degrees below horizontal) that put the beam on target_xy at ground level. With
+    `tilt_stops_deg` (v11: [5, 45]) the tilt is held inside the arm's hardware stops."""
     dx, dy = target_xy[0] - arm_xy[0], target_xy[1] - arm_xy[1]
     bearing = math.degrees(math.atan2(dy, dx))
     pan = (bearing - heading_deg + 180.0) % 360.0 - 180.0
     tilt = math.degrees(math.atan2(pivot_h_m, math.hypot(dx, dy)))
+    if tilt_stops_deg:
+        tilt = min(max(tilt, tilt_stops_deg[0]), tilt_stops_deg[1])
     return pan, tilt
 
 
@@ -123,6 +126,114 @@ class SerialLine:
         self._drop("closed")
 
 
+class TcpLine:
+    """The SerialLine interface over TCP: the v11 laser controller on poe_lan ('host:port').
+    Reconnects at most once a second after the far end goes away and bumps `generation`."""
+
+    def __init__(self, addr, reopen_s=1.0):
+        host, _, port = addr.rpartition(":")
+        self.path, self.addr, self.reopen_s = addr, (host, int(port)), reopen_s
+        self.sock, self.generation = None, 0
+        self._buf, self._next_try, self._connecting = b"", 0.0, False
+        self._open()
+
+    @property
+    def connected(self):
+        return self.sock is not None and not self._connecting
+
+    def _open(self):
+        import socket
+        if self._connecting:                       # a non-blocking connect in progress
+            try:
+                err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+            except OSError as e:
+                err = e.errno
+            if err == 0:
+                try:
+                    self.sock.getpeername()
+                except OSError:
+                    if time.monotonic() > self._next_try:
+                        self._drop("connect timed out")
+                    return
+                self._connecting, self._buf = False, b""
+                self.generation += 1
+                log.info("tcp %s connected", self.path)
+            else:
+                self._drop(f"connect failed ({os.strerror(err)})")
+            return
+        now = time.monotonic()
+        if now < self._next_try:
+            return
+        self._next_try = now + self.reopen_s
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        s.setblocking(False)
+        try:
+            s.connect(self.addr)
+        except (BlockingIOError, InterruptedError):
+            pass
+        except OSError:
+            s.close()
+            return
+        self.sock, self._connecting = s, True
+        self._open()
+
+    def _drop(self, why):
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            if not self._connecting:
+                log.warning("tcp %s lost: %s", self.path, why)
+        self.sock, self._connecting = None, False
+
+    def _ready(self):
+        if not self.connected:
+            self._open()
+        return self.connected
+
+    def send(self, line):
+        if not self._ready():
+            return False
+        try:
+            self.sock.sendall((line.strip() + "\n").encode())
+            return True
+        except BlockingIOError:
+            return False
+        except OSError as e:
+            self._drop(e)
+            return False
+
+    def readlines(self):
+        if not self._ready():
+            return []
+        while True:
+            try:
+                chunk = self.sock.recv(4096)
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError as e:
+                self._drop(e)
+                break
+            if not chunk:
+                self._drop("closed by the far end")
+                break
+            self._buf += chunk
+        *lines, self._buf = self._buf.split(b"\n")
+        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
+
+    def close(self):
+        self._drop("closed")
+
+
+def make_line(spec):
+    """A SerialLine for a device path (/dev/ttyARM), a TcpLine for 'host:port'."""
+    if isinstance(spec, (SerialLine, TcpLine)):
+        return spec
+    return SerialLine(spec) if spec.startswith("/") else TcpLine(spec)
+
+
 # --------------------------------------------------------------------------- relay board
 
 STROBE, FLOODLIGHT, LASER_POWER, SPARE = 1, 2, 3, 4
@@ -171,7 +282,7 @@ class ArmLink:
     """The Orin side of the arm protocol: AIM / LASER / HB / PARK out, POS in."""
 
     def __init__(self, line, offline_after_s=1.0):
-        self.line = line if isinstance(line, SerialLine) else SerialLine(line)
+        self.line = make_line(line)
         self.offline_after_s = offline_after_s
         self.pos, self.last_pos_t = None, None
         self.was_online = None

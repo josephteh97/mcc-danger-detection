@@ -19,7 +19,7 @@ from app.detect import make_detector
 from app.health import FrameSource, Health
 from app.horn import Horn
 from app.links import (FLOODLIGHT, LASER_POWER, STROBE, ArmLink, HexRelayAdapter, LineRelayAdapter,
-                       MqttPublisher, Relays, SerialLine, Uplink, aim_angles)
+                       MqttPublisher, Relays, Uplink, aim_angles, make_line)
 from app.track import IoUTracker
 
 log = logging.getLogger("main")
@@ -61,9 +61,9 @@ class PoleApp:
         self.pit = [tuple(p) for p in cfg["site"]["pit"]]
         self.fsm = AlarmFSM(Config(**cfg["alarm"]))
         dev = cfg["devices"]
-        self.arm = ArmLink(SerialLine(dev["arm"]))
+        self.arm = ArmLink(make_line(dev["arm"]))     # /dev/tty* (phase 1) or host:port (v11)
         adapter = HexRelayAdapter() if dev.get("relay_protocol") == "hex" else LineRelayAdapter()
-        self.relays = Relays(SerialLine(dev["relay"]), adapter)
+        self.relays = Relays(make_line(dev["relay"]), adapter)
         self.horn = Horn(dev.get("audio_sink", "horn"))
         up = cfg["uplink"]
         self.mqtt = MqttPublisher(up["broker"], up["topic"], client_id=f"pole-{self.pole}")
@@ -118,7 +118,7 @@ class PoleApp:
         if self.fsm.level >= WARNING and targets:
             pid = min(targets, key=lambda i: self.fsm.people[i].dist)
             a = self.cfg["arm"]
-            pan, tilt = aim_angles(a["xy"], a["heading_deg"], a["pivot_h_m"], self.feet[pid])
+            pan, tilt = aim_angles(a["xy"], a["heading_deg"], a["pivot_h_m"], self.feet[pid], a.get("tilt_stops_deg"))
             self.arm.point_at(pan, tilt, laser=True)
         else:
             self.arm.park()

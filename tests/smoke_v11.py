@@ -74,5 +74,19 @@ def u16():
         "at 5 m the warning ring's near corners fall outside the image and the pose is flagged"
 
 
+# --------------------------------------------------------------------------- laser reach (U26)
+
+@check("U26", "Laser reach")
+def u26():
+    r = cov.laser_reach(SITE)
+    at10 = cov.laser_reach(cov.moved(SITE, 10.0))
+    ok = r["ok"] and near(r["far_m"], 12.1, 0.05) and near(r["reach_m"], 12.57, 0.01) \
+        and not at10["ok"] and near(at10["shortfall_m"], 0.02, 0.005)
+    msg = (f"far corner {r['far_m']:.2f} m, 5° stop reaches {r['reach_m']:.2f} m"
+           + ("" if r["ok"] else f": SHORT by {r['shortfall_m']:.2f} m (design finding)")
+           + f"; at 10 m short by {at10['shortfall_m']:.2f} m")
+    return ok, msg, "the 1.5 m zone's far corner is within the 5° stop's reach (1.1 / tan 5° = 12.57 m); 10 m is 0.02 m short"
+
+
 if __name__ == "__main__":
     main("smoke_v11.py")
