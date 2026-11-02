@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 import time
 
@@ -42,6 +43,8 @@ class Source:
 
     def __init__(self, url):
         self.url, self.shown = url, hide_password(url)
+        if str(url).startswith("rtsp://"):          # RTSP over TCP, as app/health.py: UDP is lossy on Wi-Fi
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             raise OSError(f"cannot open {self.shown}")

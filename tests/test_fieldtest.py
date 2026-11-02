@@ -134,3 +134,37 @@ def test_tilted_overlay_drifts_from_plan_view():
     session = ss.new((1440, 1080))
     result, _, _ = ss.evaluate(session)
     assert result["steps"]["pose"] is None and result["steps"]["lens"] is None
+
+
+def test_zone_box_corridor(capsys):
+    """The corridor preset fits 1.8 × 2.5 m; the aimed phone puts the centre mid-frame and the far
+    corners S/2 · f/p / z_far either side of it; `zone` prints S, d, z_near, z_far and the box."""
+    assert main(["zone", "--preset", "corridor"]) == 0
+    out = capsys.readouterr().out
+    assert "S 1.42 m, d 1.65 m, z_near 0.94 m, z_far 2.36 m" in out and "inside the frame" in out
+    lens = ss.lens_of(ss.new((1280, 720), preset="corridor"))
+    z = ov.zone(lens.fx, 1280, 720, 360)
+    assert z["s"] <= 1.8 and z["z_max"] <= 2.5
+    cam = ov.aimed(lens, z, 0.45)
+    u, v = cam.image_points([[0.0, z["d"], 0.0]])[0][0]
+    assert abs(u - 640) < 0.01 and abs(v - 360) < 0.01
+    box = ov.zone_box(cam, z)
+    far_l, far_r = box["corners_px"]["far left"], box["corners_px"]["far right"]
+    half = z["s"] / 2 * lens.fx / float(cam.R[2] @ ([0.0, z["z_max"], 0.0] - cam.pos))
+    assert abs((far_r[0] - far_l[0]) / 2 - half) < 0.2
+    assert box["in_frame"] and box["box_px"][0] == min(c[0] for c in box["corners_px"].values())
+
+
+def test_session_reports_the_box():
+    result, _, _ = ss.evaluate(ss.new((1440, 1080)))
+    assert result["box"]["in_frame"]
+    from tools.fieldtest import report as rp
+    assert "Bounding box in the image" in rp.markdown(ss.new((1440, 1080)), result)
+
+
+def test_local_file_keeps_the_login_out_of_the_repo(tmp_path):
+    local = tmp_path / "phone.local.yaml"
+    local.write_text("stream_url: rtsp://me:secret@10.0.0.2:1945/\n")
+    phone = ft.load_phone(local=str(local))
+    assert phone["stream_url"] == "rtsp://me:secret@10.0.0.2:1945/" and phone["presets"]["corridor"]["rho"] == 360
+    assert "secret" not in open(ft.PHONE_FILE).read()

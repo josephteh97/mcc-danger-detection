@@ -65,7 +65,15 @@ def markdown(session, r):
     else:
         lines.append("Not solved (fewer than four cones).")
     lines += ["", "## Square", "",
-              f"z_max {z['z_max']:.2f} m, W_max {z['w_max']:.2f} m, S {z['s']:.2f} m, d {z['d']:.2f} m, near edge {z['near']:.2f} m.", "",
+              f"S {z['s']:.2f} m, d {z['d']:.2f} m, z_near {z['near']:.2f} m, z_far {z['z_max']:.2f} m (= z_max), "
+              f"W_max {z['w_max']:.2f} m.", ""]
+    box = r.get("box")
+    if box:
+        u0, v0, u1, v1 = box["box_px"]
+        lines += [f"Bounding box in the image: u {u0:.0f}–{u1:.0f}, v {v0:.0f}–{v1:.0f} px ({box['width_px']:.0f} × "
+                  f"{box['height_px']:.0f} px), {'inside' if box['in_frame'] else 'NOT inside'} the frame"
+                  + ("." if "height_m" in pose else " (camera aimed at the centre, pose not solved)."), ""]
+    lines += [
               "| Corner | x m | y m | px/m (3D) | px/m (plan) |", "|---|---|---|---|---|"]
     lines += [f"| {c['corner']} | {c['x']:+.2f} | {c['y']:.2f} | {c['px_per_m_3d']:.1f} | {c['px_per_m_plan']:.1f} |" for c in r["corners"]]
     if r["overlay"]["rows"]:

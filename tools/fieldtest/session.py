@@ -74,6 +74,8 @@ def evaluate(session):
     out["zone"] = {k: round(float(v), 4) for k, v in z.items()}
     out["layout"] = ov.layout(z)
     out["corners"] = ov.corner_table(cam, z)
+    box_cam = cam if pose.get("solved", True) else ov.aimed(lens, z, session.get("taped_height_m") or 1.5)
+    out["box"] = ov.zone_box(box_cam, z)
     out["overlay"] = overlay_check(session, cam, z, band["overlay_pct_of_width"])
     out["steps"]["overlay"] = out["overlay"]["ok"]
     out["measurements"] = [ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),

@@ -207,12 +207,16 @@ Trial keys:
 
 Checks the coverage formulas (ρ = (f/p)/z, the largest square S and its centre d, the placement and height windows) in a car park with a real lens, before the 12 MP camera is bought. A phone streams over Wi-Fi with the free IP Webcam app. The tool runs on this PC, not in Docker, and uses the twin's own code: `tools.coverage.largest_zone`, `catalog.effects`, `world.camera.PinholeCamera` and `app.detect`. Change: `openspec/changes/add-phone-fieldtest/`.
 
-**Phone setup (IP Webcam).** Put the phone and the PC on the same Wi-Fi (or the PC's hotspot). In Video preferences, choose the main (back) camera, a 4:3 size (1440 × 1080 or 1920 × 1440), stabilisation off and zoom 1×. Set focus to fixed far (or continuous video) and don't change it after calibrating. Set a login under Local broadcasting, start the server, and put the address it shows into `fieldtest/phone.yaml` (`stream_url`, `still_url`, `sensors_url`). The tool never prints the password.
+**Phone setup (IP Webcam).** Put the phone and the PC on the same Wi-Fi (or the PC's hotspot). In Video preferences, choose the main (back) camera, a 4:3 size (1440 × 1080 or 1920 × 1440), stabilisation off and zoom 1×. Set focus to fixed far (or continuous video) and don't change it after calibrating. Set a login under Local broadcasting, start the server, and put the address it shows, login included, into `fieldtest/phone.local.yaml` (`stream_url`, `still_url`, `sensors_url`). That file is git-ignored and overrides the placeholders in `phone.yaml`, so the password never goes into the repo; the tool never prints it.
+
+**Phone without a 4:3 stream.** The Redmi Note 13 Pro in use streams from an RTSP app on port 1945 (`rtsp://USER:PASS@<phone>:1945/`, read over TCP) at 720p only, which is 16:9 and has no still or sensor endpoints. Calibrate the lens at 1280 × 720 before the overlay and use preset `rtsp720`, or `corridor` for a 1.8 × 2.5 m office corridor (ρ 360, phone at 0.45 m: S 1.42 m, z_far 2.36 m). The detection sweep needs about 15 m and isn't run in the corridor.
 
 ```bash
 python3 -m tools.fieldtest probe                     # frame size and fps; warns if the stream isn't 4:3
 python3 -m tools.fieldtest layout                    # cone positions for the default test (1440 x 1080, rho 100)
 python3 -m tools.fieldtest layout --preset office    # a 3 x 4 m room: 12.5 MP photo, rho 680, phone at 0.9 m
+python3 -m tools.fieldtest zone --preset corridor    # S, d, z_near, z_far and the square's bounding box in the image
+python3 -m tools.fieldtest zone --session reports/fieldtest/<date>/session.json   # the same with the calibrated lens and solved pose
 python3 -m tools.fieldtest serve                     # the page: http://127.0.0.1:8090 (--bind to open it up)
 python3 -m tools.fieldtest serve --file reports/fieldtest/<date>/rec_<time>.mp4   # the same on a recording
 python3 -m tools.fieldtest measure --session reports/fieldtest/<date>/session.json   # replay the clicks
@@ -250,7 +254,7 @@ orin/          Dockerfile (fast and JetPack flavours), entrypoint.sh, horn_monit
 dashboard/     server.py, live.py, faults.py, v11.py (what-if, HUD, heatmap), static/ (three.js, add-ons and hls.js vendored)
 catalog/       one folder per category, _schema.yaml plus product files; effects.py
 tools/         trial.py, compare.py, evaluate.py, calibrate.py, coverage.py, network.py, fieldtest/ (phone field test)
-fieldtest/     phone.yaml (the field-test phone: a test instrument, kept out of catalog/)
+fieldtest/     phone.yaml (the field-test phone: a test instrument, kept out of catalog/); phone.local.yaml (git-ignored login)
 tests/         smoke*.py (quick checks), test_compose.py (static), test_stack.py (full stack), test_quick.py (pytest wrapper),
                test_v11_world.py, test_v11_power.py, test_links_tcp.py, test_share.py, test_whatif.py, test_fieldtest.py,
                fakes/ (stand-in curl, devtunnel and the synthetic field-test camera), legacy/ (pytest --legacy)

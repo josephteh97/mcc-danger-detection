@@ -3,7 +3,8 @@
 - [x] 1.1 Add `fieldtest/phone.yaml` with the Redmi Note 13 Pro profile (HP3 main: 200 MP, 1/1.4", 0.56 µm, 9.14 × 6.85 mm, 23/28/35 mm; ultra-wide 8 MP, 1/4", 1.12 µm, 118° quoted), stream, still and sensor URLs, checkerboard size, required ρ
 - [x] 1.1a Effective pitch p = sensor (or crop) width ÷ N, printed with f/p for every image
 - [x] 1.2 `tools/fieldtest/source.py`: open RTSP or MJPEG with OpenCV, fetch stills and `sensors.json`, read N from frames, warn on non-4:3 or size changes, hide URL passwords
-- [ ] 1.3 Check with the real phone which IP Webcam endpoints and 4:3 video sizes it offers; update the defaults in `phone.yaml`
+- [x] 1.3 Check with the real phone which IP Webcam endpoints and 4:3 video sizes it offers; update the defaults in `phone.yaml`
+  - Found 2026-11-02: the phone streams from an RTSP app on port 1945 (login, read over TCP), not IP Webcam, so no still or sensors endpoints. Sizes: 720p only (1080p and MAX greyed out), all 16:9; probe: 1280 × 720 at 6.5 fps (app set to 15). No 4:3 size, so preset `rtsp720` and a checkerboard calibration at 1280 × 720 replace the 4:3 lens values.
 - [x] 1.4 Verify: P09 and P10 pass; `python3 -m tools.fieldtest probe --url <phone>` prints frame size and fps
 
 ## 2. Lens calibration

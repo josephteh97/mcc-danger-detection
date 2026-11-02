@@ -46,8 +46,8 @@ def layout(z):
 
 def describe_layout(sheet):
     n = sheet["numbers"]
-    lines = [f"z_max {n['z_max']:.2f} m, W_max {n['w_max']:.2f} m, square S {n['s']:.2f} m, "
-             f"centre d {n['d']:.2f} m, near edge {n['near']:.2f} m",
+    lines = [f"square S {n['s']:.2f} m, centre d {n['d']:.2f} m, z_near {n['near']:.2f} m, "
+             f"z_far {n['z_max']:.2f} m (= z_max), W_max {n['w_max']:.2f} m",
              "Tape out (x right, y ahead, metres from the point under the phone):"]
     lines += [f"  {name:10s} ({x:+.2f}, {y:.2f})" for name, (x, y) in sheet["corners"].items()]
     lines.append(f"  centre     ({sheet['centre'][0]:+.2f}, {sheet['centre'][1]:.2f})")
@@ -66,6 +66,46 @@ def corner_table(cam, z):
         rows.append({"corner": name, "x": float(x), "y": float(y), "px_per_m_3d": cam.pole_px((x, y)),
                      "px_per_m_plan": z["fp"] / fwd})
     return rows
+
+
+def aimed(lens, z, height_m):
+    """The camera the layout assumes before the cones are clicked: at height_m over the origin,
+    looking straight ahead and pitched down so the square's centre (0, d) is at the image centre."""
+    from tools.fieldtest.lens import FieldCamera
+    return FieldCamera.posed(lens, height_m, math.degrees(math.atan2(height_m, z["d"])))
+
+
+def zone_box(cam, z, steps=24):
+    """The square in the real image: each corner's pixel and the bounding box of its outline (edges
+    bent through the lens), or None when part of it is behind the camera."""
+    corners, _ = square(z, cam.pos[:2], _heading(cam))
+    t = np.linspace(0, 1, steps)[:, None]
+    edge = np.vstack([a + (b - a) * t for a, b in zip(corners, np.roll(corners, -1, axis=0))])
+    uv, depth = cam.image_points(np.column_stack([edge, np.zeros(len(edge))]))
+    if np.any(depth <= 0):
+        return None
+    cuv, _ = cam.image_points(np.column_stack([corners, np.zeros(4)]))
+    (u0, v0), (u1, v1) = uv.min(axis=0), uv.max(axis=0)
+    return {"corners_px": {name: [round(float(u), 1), round(float(v), 1)] for name, (u, v) in
+                           zip(("far left", "far right", "near right", "near left"), cuv)},
+            "box_px": [round(float(c), 1) for c in (u0, v0, u1, v1)],
+            "width_px": round(float(u1 - u0), 1), "height_px": round(float(v1 - v0), 1),
+            "in_frame": bool(u0 >= 0 and v0 >= 0 and u1 <= cam.width and v1 <= cam.height)}
+
+
+def describe_zone(z, box, cam):
+    """S, d, z_near, z_far and the square's bounding box in the image, for the terminal."""
+    lines = [f"rho {z['rho']:g} px/m, f/p {z['fp']:.1f} px, frame {cam.width} × {cam.height}",
+             f"S {z['s']:.2f} m, d {z['d']:.2f} m, z_near {z['near']:.2f} m, z_far {z['z_max']:.2f} m "
+             f"(= z_max), W_max {z['w_max']:.2f} m",
+             f"phone at {cam.pos[2]:.2f} m, pitch {cam.pitch_deg:.1f}° down"]
+    if box is None:
+        return "\n".join(lines + ["the square is partly behind the camera: no bounding box"])
+    u0, v0, u1, v1 = box["box_px"]
+    lines.append(f"bounding box u {u0:.0f}–{u1:.0f}, v {v0:.0f}–{v1:.0f} px ({box['width_px']:.0f} × "
+                 f"{box['height_px']:.0f} px), {'inside the frame' if box['in_frame'] else 'NOT inside the frame'}")
+    lines += [f"  {name:10s} ({u:7.1f}, {v:6.1f}) px" for name, (u, v) in box["corners_px"].items()]
+    return "\n".join(lines)
 
 
 def _heading(cam):

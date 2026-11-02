@@ -37,7 +37,7 @@ WEATHER=night_rain SCENARIO=idle docker compose up -d --build
 docker compose down
 ```
 
-Tools: `python3 -m tools.trial [--headless]`, `python3 -m tools.compare <category> <a> <b> --weather ...`, `python3 -m tools.evaluate logs/run-<time>`, `python3 devices/power_model.py --days 3 --weather overcast`. Phone field test (host only, page on 127.0.0.1:8090): `python3 -m tools.fieldtest probe|serve|layout|calibrate|measure|sweep|report|distortion`; settings in `fieldtest/phone.yaml`, output in `reports/fieldtest/<date>/`. Remote sharing: `./share.sh start|status|stop` (devtunnel; never anonymous — see README).
+Tools: `python3 -m tools.trial [--headless]`, `python3 -m tools.compare <category> <a> <b> --weather ...`, `python3 -m tools.evaluate logs/run-<time>`, `python3 devices/power_model.py --days 3 --weather overcast`. Phone field test (host only, page on 127.0.0.1:8090): `python3 -m tools.fieldtest probe|serve|layout|zone|calibrate|measure|sweep|report|distortion`; settings in `fieldtest/phone.yaml`, the stream login in git-ignored `fieldtest/phone.local.yaml` (never commit it), output in `reports/fieldtest/<date>/`. Remote sharing: `./share.sh start|status|stop` (devtunnel; never anonymous — see README).
 
 ## Architecture
 

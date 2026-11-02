@@ -21,13 +21,20 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 PHONE_FILE = os.path.join(ROOT, "fieldtest", "phone.yaml")
+LOCAL_FILE = os.path.join(ROOT, "fieldtest", "phone.local.yaml")   # git-ignored: the stream URLs with the login
 REPORTS = os.path.join(ROOT, "reports", "fieldtest")     # git-ignored with reports/
 HALF_WIDTH_35MM = 17.31          # half the width of a 4:3 frame on a 43.27 mm (35 mm film) diagonal
 
 
-def load_phone(path=None):
+def load_phone(path=None, local=LOCAL_FILE):
+    """The phone settings, with the keys of the git-ignored phone.local.yaml (the stream, still and
+    sensor URLs with the login) laid over them, so the password never goes into the repo."""
     with open(path or PHONE_FILE) as f:
-        return yaml.safe_load(f)
+        phone = yaml.safe_load(f)
+    if local and os.path.exists(local):
+        with open(local) as f:
+            phone.update(yaml.safe_load(f) or {})
+    return phone
 
 
 def report_dir(date=None):

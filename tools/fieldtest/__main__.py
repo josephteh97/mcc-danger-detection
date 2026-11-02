@@ -5,6 +5,7 @@
     python3 -m tools.fieldtest record --seconds 60 [--url URL]
     python3 -m tools.fieldtest calibrate (--file REC | --images 'board/*.jpg') [--every 10]
     python3 -m tools.fieldtest layout [--preset office] [--rho 100] [--size 1440x1080]
+    python3 -m tools.fieldtest zone [--session S.json | --preset corridor [--height 0.45]]
     python3 -m tools.fieldtest pose --session S.json
     python3 -m tools.fieldtest overlay --session S.json --file REC [--frame 0] [--out overlay.png]
     python3 -m tools.fieldtest measure --session S.json [--out measurements.csv]
@@ -79,6 +80,13 @@ def build_parser():
     p.add_argument("--rho", type=float)
     p.add_argument("--size", type=_size)
     p.add_argument("--focal", type=float)
+    p = cmd("zone", "S, d, z_near, z_far and the square's bounding box in the image")
+    p.add_argument("--session", help="use the session's calibrated lens and solved pose")
+    p.add_argument("--preset", default="default")
+    p.add_argument("--rho", type=float)
+    p.add_argument("--size", type=_size)
+    p.add_argument("--focal", type=float)
+    p.add_argument("--height", type=float, help="phone height, m (default: the preset's)")
     for name, help_ in (("pose", "solve the pose from the session's cones"),
                         ("overlay", "draw the overlay on a frame of a recording"),
                         ("measure", "the measurement log from the session's clicks"),
@@ -177,9 +185,26 @@ def main(argv=None):
         print(f"saved {out}")
         return 0
 
+    if a.cmd == "zone" and not a.session:      # before the test: nominal lens, phone aimed at the centre
+        from tools.fieldtest import overlay as ov
+        from tools.fieldtest.lens import FieldLens
+        p = dict(phone["presets"][a.preset])
+        size = a.size or tuple(p["frame_px"])
+        lens = FieldLens.pinhole(size, nominal_fp(size[0], a.focal or p["focal_equiv_mm"]))
+        z = ov.zone(lens.fx, size[0], size[1], a.rho or p["rho"])
+        cam = ov.aimed(lens, z, a.height or p["height_m"])
+        print(ov.describe_zone(z, ov.zone_box(cam, z), cam))
+        return 0
+
     from tools.fieldtest import session as ss
     session = ss.load(a.session)
     result, cam, z = ss.evaluate(session)
+
+    if a.cmd == "zone":
+        from tools.fieldtest import overlay as ov
+        box_cam = cam if result["steps"]["pose"] is not None else ov.aimed(cam.lens, z, session.get("taped_height_m") or 1.5)
+        print(ov.describe_zone(z, result["box"], box_cam))
+        return 0
 
     if a.cmd == "pose":
         print(json.dumps(result["pose"], indent=1))

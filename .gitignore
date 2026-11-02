@@ -13,3 +13,6 @@ reports/
 .share/
 
 conversation/
+
+# Field-test phone login (tools/fieldtest)
+fieldtest/phone.local.yaml
