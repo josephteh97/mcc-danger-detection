@@ -209,6 +209,8 @@ Checks the coverage formulas (ρ = (f/p)/z, the largest square S and its centre 
 
 **Phone setup (IP Webcam).** Put the phone and the PC on the same Wi-Fi (or the PC's hotspot). In Video preferences, choose the main (back) camera, a 4:3 size (1440 × 1080 or 1920 × 1440), stabilisation off and zoom 1×. Set focus to fixed far (or continuous video) and don't change it after calibrating. Set a login under Local broadcasting, start the server, and put the address it shows, login included, into `fieldtest/phone.local.yaml` (`stream_url`, `still_url`, `sensors_url`). That file is git-ignored and overrides the placeholders in `phone.yaml`, so the password never goes into the repo; the tool never prints it.
 
+**Step-by-step for the office corridor:** `fieldtest/calibration.md`.
+
 **Phone without a 4:3 stream.** The Redmi Note 13 Pro in use streams from an RTSP app on port 1945 (`rtsp://USER:PASS@<phone>:1945/`, read over TCP) at 720p only, which is 16:9 and has no still or sensor endpoints. Calibrate the lens at 1280 × 720 before the overlay and use preset `rtsp720`, or `corridor` for a 1.8 × 2.5 m office corridor (ρ 360, phone at 0.45 m: S 1.42 m, z_far 2.36 m). The detection sweep needs about 15 m and isn't run in the corridor.
 
 ```bash
@@ -254,7 +256,7 @@ orin/          Dockerfile (fast and JetPack flavours), entrypoint.sh, horn_monit
 dashboard/     server.py, live.py, faults.py, v11.py (what-if, HUD, heatmap), static/ (three.js, add-ons and hls.js vendored)
 catalog/       one folder per category, _schema.yaml plus product files; effects.py
 tools/         trial.py, compare.py, evaluate.py, calibrate.py, coverage.py, network.py, fieldtest/ (phone field test)
-fieldtest/     phone.yaml (the field-test phone: a test instrument, kept out of catalog/); phone.local.yaml (git-ignored login)
+fieldtest/     phone.yaml (the field-test phone: a test instrument, kept out of catalog/); phone.local.yaml (git-ignored login); calibration.md (corridor test step by step)
 tests/         smoke*.py (quick checks), test_compose.py (static), test_stack.py (full stack), test_quick.py (pytest wrapper),
                test_v11_world.py, test_v11_power.py, test_links_tcp.py, test_share.py, test_whatif.py, test_fieldtest.py,
                fakes/ (stand-in curl, devtunnel and the synthetic field-test camera), legacy/ (pytest --legacy)

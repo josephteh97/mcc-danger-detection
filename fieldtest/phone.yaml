@@ -34,7 +34,7 @@ ultrawide:                         # for the distortion test, with distortion co
 
 checkerboard:
   inner_corners: [9, 6]
-  square_mm: 25
+  square_mm: 36                    # A3 board, 36 mm measured with a ruler
   min_views: 12
 
 rho_px_per_m: 100                  # required density (the twin's 100 px for a 1.0 m squatting worker)
