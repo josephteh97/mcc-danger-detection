@@ -8,6 +8,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
 MONITORING, WARNING, ALARM = 0, 1, 2
 LEVEL_NAMES = {MONITORING: "monitoring", WARNING: "warning", ALARM: "alarm"}
 
@@ -22,15 +24,14 @@ def undistort_pixel(u, v, lens=None):
     """A pixel of the real (barrel-distorted) camera image -> the matching pinhole pixel, which is
     what the calibration homography maps. lens: {"cx", "cy", "fx", "fp", "k"} for the radial lens
     r = fp·atan(k·t)/k (t: tangent of the ray's angle off the axis; fx: the pinhole's focal length,
-    all in stream pixels). None, as in phase 1, leaves the pixel unchanged."""
+    all in stream pixels). None, as in phase 1, leaves the pixel unchanged. u and v may be numpy
+    arrays (the renderer builds its remap grid with this)."""
     if not lens:
         return u, v
-    dx, dy = u - lens["cx"], v - lens["cy"]
-    r = math.hypot(dx, dy)
-    if r < 1e-9:
-        return u, v
-    a = min(lens["k"] * r / lens["fp"], math.pi / 2 - 1e-6)
-    s = lens["fx"] * math.tan(a) / lens["k"] / r
+    dx, dy = np.subtract(u, lens["cx"]), np.subtract(v, lens["cy"])
+    r = np.hypot(dx, dy)
+    a = np.minimum(lens["k"] * r / lens["fp"], math.pi / 2 - 1e-3)
+    s = np.where(r > 1e-9, lens["fx"] * np.tan(a) / lens["k"] / np.maximum(r, 1e-9), lens["fx"] / lens["fp"])
     return lens["cx"] + dx * s, lens["cy"] + dy * s
 
 

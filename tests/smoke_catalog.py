@@ -34,8 +34,8 @@ def u09():
     phase1 = catalog.load_site(profile="phase1")
     v11 = catalog.load_site(profile="v11")
     unpowered = {"laser", "battery", "solar", "mast", "power_conv"}
-    no_watts = [p["id"] for c, f in v11["fitted"].items() if c not in unpowered and c != "floodlight"
-                for p in (f if isinstance(f, list) else [f]) if "watts_typ" not in p or "watts_max" not in p]
+    no_watts = [p["id"] for c in v11["fitted"] if c not in unpowered and c != "floodlight"
+                for p in catalog.fitted(v11, c) if "watts_typ" not in p or "watts_max" not in p]
     ok = len(phase1["fitted"]) == 8 and set(v11["fitted"]) == set(catalog.CATEGORIES) and not no_watts
     return ok, (f"{n} product files in {len(found)} categories; phase1 fits {len(phase1['fitted'])} categories, "
                 f"v11 fits {len(catalog.fitted_products(v11))} products in {len(v11['fitted'])}"

@@ -21,9 +21,10 @@ if __package__ in (None, ""):
 
 from app.alarm import edge_distance                                  # noqa: E402
 from app.links import beam_ground_point                              # noqa: E402
+from catalog import effects as fx                                    # noqa: E402
 from world import weather as wx                                      # noqa: E402
 from world.camera import Lens, PinholeCamera, image_to_ground_homography   # noqa: E402
-from world.scene import Scene                                        # noqa: E402
+from world.scene import POSTURE_H, Scene                             # noqa: E402
 
 TEX_PPM, TEX_EXTENT = 32, 30.0          # ground texture: 32 px/m over +-30 m
 MUD, OUTSIDE = (62, 88, 108), (78, 104, 92)
@@ -35,7 +36,6 @@ BODY = [(0.0, 0.28, 0.85, 0.20, (70, 45, 38)),        # legs, dark trousers
         (1.60, 0.15, 1.78, 0.13, (235, 240, 240))]    # white helmet
 V_LAMBDA = {520: 0.710, 532: 0.885, 650: 0.107}       # eye sensitivity for the dot's brightness
 NIGHT_GAIN, IR_GAIN = 0.022, 0.0052
-STAND_H = 1.78                                        # BODY is drawn for a standing worker this tall
 SUN_AZ_DEG, SUN_EL_DEG = 135.0, 55.0                  # sun from the north-west, mid-morning
 BARRIER_OFFSET_M = 0.3                                # barrier around the pit edge
 
@@ -65,14 +65,8 @@ class World:
         self.cam = PinholeCamera.from_site(site)
         self.W, self.H = self.cam.width, self.cam.height
         self.lens = Lens.from_site(self.cam, site["fitted"]["camera"])   # v11: render through the real lens
-        self.ir_night = self.lens is not None          # v11 camera: IR monochrome at night
-        cam_p = site["fitted"]["camera"]
-        native_w = cam_p["resolution_px"][0]
-        self._native_fp = cam_p.get("dori_fp_px") or (native_w / 2) / math.tan(math.radians(cam_p["hfov_deg"]) / 2)
-        self._native_d = 0.0
-        if cam_p.get("dori_fp_px"):
-            from catalog.effects import lens as lens_numbers
-            self._native_d = lens_numbers(cam_p)[2]
+        self.ir_night = site["camera"].get("render", {}).get("ir_night", False)   # IR monochrome at night
+        self._native_fp, _, self._native_d = fx.lens(site["fitted"]["camera"])
         self.arm_cfg = site["arm"]
         self.arm = (0.0, 90.0, False)          # pan, tilt, laser on: fed from the arm state
         self._cache, self._frame = {}, 0
@@ -115,11 +109,7 @@ class World:
             if self.lens is None:
                 return self.cam.ground_maps()
             mx, my = self.lens.maps()                     # pinhole pixel seen at each output pixel
-            d = self.cam.rays(mx.astype(np.float64) + 0.5, my.astype(np.float64) + 0.5)
-            hit = d[..., 2] < -1e-6
-            sl = np.where(hit, -self.cam.pos[2] / np.where(hit, d[..., 2], -1.0), np.inf)
-            gx, gy = self.cam.pos[0] + sl * d[..., 0], self.cam.pos[1] + sl * d[..., 1]
-            return gx.astype(np.float32), gy.astype(np.float32), sl.astype(np.float32)
+            return self.cam.ground_maps(mx.astype(np.float64) + 0.5, my.astype(np.float64) + 0.5)
         return self._cached(("maps",), make)
 
     def native_height_px(self, w):
@@ -172,20 +162,16 @@ class World:
             return None
         gx, gy, dist = self._maps()
         ground = np.isfinite(dist)
-        if self.ir_night:                               # IR illuminator falls off with range; floodlight adds
-            rng_m = np.where(ground, np.maximum(dist, 1.0), 1e4)
-            ir = 0.012 + IR_GAIN * 4 * (f["camera"]["ir_range_m"] / rng_m) ** 2
-            if preset.floodlight:
-                with np.errstate(invalid="ignore", over="ignore"):
-                    lux = np.nan_to_num(self.lux_at(gx, gy, 0.0), nan=0.0, posinf=0.0)
-                ir = ir + NIGHT_GAIN * np.where(ground, lux, 0.0)
-            return np.clip(ir, 0, 1.2).astype(np.float32)
+        ir = (f["camera"]["ir_range_m"] / np.where(ground, np.maximum(dist, 1.0), 1e4)) ** 2   # IR falls off with range
+        lux = 0.0
         if preset.floodlight:
             with np.errstate(invalid="ignore", over="ignore"):
-                lux = np.nan_to_num(self.lux_at(gx, gy, 0.0), nan=0.0, posinf=0.0)
+                lux = np.where(ground, np.nan_to_num(self.lux_at(gx, gy, 0.0), nan=0.0, posinf=0.0), 0.0)
+        if self.ir_night:                               # IR illuminator, plus the floodlight when on
+            return np.clip(0.012 + IR_GAIN * 4 * ir + NIGHT_GAIN * lux, 0, 1.2).astype(np.float32)
+        if preset.floodlight:
             return np.where(ground, np.clip(0.035 + NIGHT_GAIN * lux, 0, 1.2), 0.035).astype(np.float32)
-        rng_m = np.where(ground, np.maximum(dist, 1.0), 1e4)
-        return np.clip(0.012 + IR_GAIN * (f["camera"]["ir_range_m"] / rng_m) ** 2, 0, 1.0).astype(np.float32)
+        return np.clip(0.012 + IR_GAIN * ir, 0, 1.0).astype(np.float32)
 
     def lux_at(self, x, y, z):
         """Floodlight illuminance (lux) at ground points: lumens spread over the beam footprint."""
@@ -238,9 +224,7 @@ class World:
         corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
         for i in range(4):
             (ax, ay), (bx, by) = corners[i], corners[(i + 1) % 4]
-            n = 24 if self.lens is not None else 1          # bend the long edges through the lens
-            base = [(ax + (bx - ax) * i / n, ay + (by - ay) * i / n) for i in range(n + 1)]
-            quad = np.array([(x, y, 0.0) for x, y in base] + [(x, y, WALL_H) for x, y in reversed(base)], float)
+            quad = np.array([[ax, ay, 0], [bx, by, 0], [bx, by, WALL_H], [ax, ay, WALL_H]], float)
             pc = _clip_near((quad - self.cam.pos) @ self.cam.R.T)
             if len(pc) < 3:
                 continue
@@ -258,8 +242,8 @@ class World:
         """Stacked frustums for the worker's posture: squatting (1.0 m) and kneeling (1.2 m) workers
         are the standing body compressed and widened. Each part gets a lit and a shaded side."""
         polys = []
-        sz = w.height_m / STAND_H
-        sr = 1.0 if sz > 0.99 else 1.25
+        sz = w.height_m / POSTURE_H["stand"]           # BODY is drawn for a standing worker
+        sr = 1.25 if w.down else 1.0
         side = np.array([math.cos(math.radians(SUN_AZ_DEG)), math.sin(math.radians(SUN_AZ_DEG))])
         for z0, r0, z1, r1, colour in BODY:
             a = np.linspace(0, 2 * np.pi, 16, endpoint=False)
@@ -271,10 +255,17 @@ class World:
             polys.append((cv2.convexHull(np.round(uv * 4).astype(np.int32)), colour))
             lit = (np.cos(a) * side[0] + np.sin(a) * side[1]) > 0.2      # the half facing the sun
             if lit.any():
-                uvl, _ = self.project(np.vstack([ring0[lit], ring1[lit]]))
+                uvl = uv[np.concatenate([lit, lit])]
                 polys.append((cv2.convexHull(np.round(uvl * 4).astype(np.int32)),
                               tuple(min(255, c * 1.18) for c in colour)))
         return polys
+
+    def _roi(self, pts4):
+        """The frame box (x0, y0, x1, y1) around polygon points given in quarter pixels (shift=2),
+        with a small margin for anti-aliasing; None if it is off the frame."""
+        x, y, bw, bh = cv2.boundingRect(pts4 // 4)
+        x0, y0, x1, y1 = max(0, x - 2), max(0, y - 2), min(self.W, x + bw + 3), min(self.H, y + bh + 3)
+        return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
 
     def _shadow_poly(self, w):
         """The worker's shadow on the ground, cast away from the sun (daytime)."""
@@ -330,23 +321,25 @@ class World:
             light = self._worker_light(w, preset)
             if not preset.night and preset.light > 0.3:
                 shadow = self._shadow_poly(w)
-                if shadow is not None:
-                    shade = img.copy()
-                    cv2.fillConvexPoly(shade, shadow, (0, 0, 0), lineType=cv2.LINE_AA, shift=2)
-                    k = 0.35 * min(1.0, preset.light)
-                    img = img * (1 - k) + shade * k
-            mask = np.zeros((self.H, self.W), np.uint8)
-            x0, y0, bw, bh = cv2.boundingRect(np.vstack([h for h, _ in polys]) // 4)
-            x0, y0 = max(0, x0 - 2), max(0, y0 - 2)
-            x1, y1 = min(self.W, x0 + bw + 5), min(self.H, y0 + bh + 5)
+                roi = self._roi(shadow) if shadow is not None else None
+                if roi is not None:                     # darken only the shadow's box, in place
+                    sx0, sy0, sx1, sy1 = roi
+                    m = np.zeros((sy1 - sy0, sx1 - sx0), np.float32)
+                    cv2.fillConvexPoly(m, shadow - np.array([sx0 * 4, sy0 * 4], np.int32), 1.0, lineType=cv2.LINE_AA, shift=2)
+                    img[sy0:sy1, sx0:sx1] *= (1 - 0.35 * min(1.0, preset.light) * m)[..., None]
+            roi = self._roi(np.vstack([h for h, _ in polys]))
+            if roi is None:
+                continue
+            x0, y0, x1, y1 = roi
+            mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
             for hull, colour in polys:
                 c = np.array(colour, np.float32)
                 if preset.night and (not preset.floodlight or self.ir_night):
                     c = np.full(3, c @ np.array([0.114, 0.587, 0.299], np.float32))
                 c = c * light * t + air * (1 - t)
                 cv2.fillConvexPoly(img, hull, c.tolist(), lineType=cv2.LINE_AA, shift=2)
-                cv2.fillConvexPoly(mask, hull, 1, shift=2)
-            sub = mask[y0:y1, x0:x1] > 0
+                cv2.fillConvexPoly(mask, hull - np.array([x0 * 4, y0 * 4], np.int32), 1, shift=2)
+            sub = mask > 0
             label[y0:y1, x0:x1][sub] = idx
             ys, xs = np.nonzero(sub)
             if len(xs):
@@ -386,7 +379,8 @@ class World:
     def _effects(self, img):
         p, cam = self.preset, self.site["fitted"]["camera"]
         key = (p.name, cam["id"])
-        rain = self._cached(("rain",) + key, lambda: wx.make_rain_layers(self.H, self.W, p, np.random.default_rng(self.seed + 1)))
+        rain = self._cached(("rain",) + key, lambda: [wx.sparse(layer) for layer in wx.make_rain_layers(
+            self.H, self.W, p, np.random.default_rng(self.seed + 1))])
         if rain:
             img = wx.apply_rain(img, rain[self._frame % len(rain)], p)
         if p.lightning:
@@ -399,7 +393,7 @@ class World:
         img = wx.apply_window_fog(img, p.window_fog)
         drops = self._cached(("drops",) + key, lambda: wx.make_drop_mask(
             self.H, self.W, wx.drop_coverage(p, cam), np.random.default_rng(self.seed + 2)))
-        img = wx.apply_drops(img, drops)
+        img = wx.apply_drops(img, self._cached(("drops_sparse",) + key, lambda: wx.sparse(drops)))
         if p.mud:
             img = wx.apply_mud(img, self._cached(("mud",), lambda: wx.make_mud(self.H, self.W, np.random.default_rng(self.seed + 3))))
         sigma = p.noise

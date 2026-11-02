@@ -40,7 +40,56 @@ def beam_ground_point(arm_xy, heading_deg, pivot_h_m, pan, tilt):
 
 # --------------------------------------------------------------------------- serial lines
 
-class SerialLine:
+class _Line:
+    """A newline-delimited text line on a byte stream that may go away and come back. It reopens
+    at most once every `reopen_s` and bumps `generation` so callers can resend state. Subclasses
+    supply `connected`, `_open`, `_drop`, `_read` and `_write`."""
+    EOF_REASON = "end of file"
+
+    def __init__(self, path, reopen_s=1.0):
+        self.path, self.reopen_s = path, reopen_s
+        self.generation, self._buf, self._next_try = 0, b"", 0.0
+
+    def _ready(self):
+        if not self.connected:
+            self._open()
+        return self.connected
+
+    def send(self, line):
+        if not self._ready():
+            return False
+        try:
+            self._write((line.strip() + "\n").encode())
+            return True
+        except BlockingIOError:
+            return False
+        except OSError as e:
+            self._drop(e)
+            return False
+
+    def readlines(self):
+        if not self._ready():
+            return []
+        while True:
+            try:
+                chunk = self._read()
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError as e:
+                self._drop(e)
+                break
+            if not chunk:
+                self._drop(self.EOF_REASON)
+                break
+            self._buf += chunk
+        *lines, self._buf = self._buf.split(b"\n")
+        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
+
+    def close(self):
+        self._drop("closed")
+
+
+class SerialLine(_Line):
     """A newline-delimited text line on a serial device (a pty in the twin, a USB tty on site).
 
     The device may disappear (cable unplugged) and come back; the line reopens itself at
@@ -48,9 +97,8 @@ class SerialLine:
     """
 
     def __init__(self, path, reopen_s=1.0):
-        self.path, self.reopen_s = path, reopen_s
-        self.fd, self.generation = None, 0
-        self._buf, self._next_try = b"", 0.0
+        super().__init__(path, reopen_s)
+        self.fd = None
         self._open()
 
     @property
@@ -88,53 +136,23 @@ class SerialLine:
             log.warning("serial %s lost: %s", self.path, why)
         self.fd = None
 
-    def send(self, line):
-        if self.fd is None:
-            self._open()
-            if self.fd is None:
-                return False
-        try:
-            os.write(self.fd, (line.strip() + "\n").encode())
-            return True
-        except BlockingIOError:
-            return False
-        except OSError as e:
-            self._drop(e)
-            return False
+    def _read(self):
+        return os.read(self.fd, 4096)
 
-    def readlines(self):
-        if self.fd is None:
-            self._open()
-            if self.fd is None:
-                return []
-        while True:
-            try:
-                chunk = os.read(self.fd, 4096)
-            except BlockingIOError:
-                break
-            except OSError as e:
-                self._drop(e)
-                break
-            if not chunk:
-                self._drop("end of file")
-                break
-            self._buf += chunk
-        *lines, self._buf = self._buf.split(b"\n")
-        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
-
-    def close(self):
-        self._drop("closed")
+    def _write(self, data):
+        os.write(self.fd, data)
 
 
-class TcpLine:
+class TcpLine(_Line):
     """The SerialLine interface over TCP: the v11 laser controller on poe_lan ('host:port').
     Reconnects at most once a second after the far end goes away and bumps `generation`."""
+    EOF_REASON = "closed by the far end"
 
     def __init__(self, addr, reopen_s=1.0):
+        super().__init__(addr, reopen_s)
         host, _, port = addr.rpartition(":")
-        self.path, self.addr, self.reopen_s = addr, (host, int(port)), reopen_s
-        self.sock, self.generation = None, 0
-        self._buf, self._next_try, self._connecting = b"", 0.0, False
+        self.addr = (host, int(port))
+        self.sock, self._connecting = None, False
         self._open()
 
     @property
@@ -188,48 +206,16 @@ class TcpLine:
                 log.warning("tcp %s lost: %s", self.path, why)
         self.sock, self._connecting = None, False
 
-    def _ready(self):
-        if not self.connected:
-            self._open()
-        return self.connected
+    def _read(self):
+        return self.sock.recv(4096)
 
-    def send(self, line):
-        if not self._ready():
-            return False
-        try:
-            self.sock.sendall((line.strip() + "\n").encode())
-            return True
-        except BlockingIOError:
-            return False
-        except OSError as e:
-            self._drop(e)
-            return False
-
-    def readlines(self):
-        if not self._ready():
-            return []
-        while True:
-            try:
-                chunk = self.sock.recv(4096)
-            except (BlockingIOError, InterruptedError):
-                break
-            except OSError as e:
-                self._drop(e)
-                break
-            if not chunk:
-                self._drop("closed by the far end")
-                break
-            self._buf += chunk
-        *lines, self._buf = self._buf.split(b"\n")
-        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
-
-    def close(self):
-        self._drop("closed")
+    def _write(self, data):
+        self.sock.sendall(data)
 
 
 def make_line(spec):
     """A SerialLine for a device path (/dev/ttyARM), a TcpLine for 'host:port'."""
-    if isinstance(spec, (SerialLine, TcpLine)):
+    if isinstance(spec, _Line):
         return spec
     return SerialLine(spec) if spec.startswith("/") else TcpLine(spec)
 

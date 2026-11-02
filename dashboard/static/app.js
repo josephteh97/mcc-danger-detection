@@ -32,7 +32,8 @@ const QUALITY = {
   medium: { shadows: true, bloom: true, rain: 1500, ratio: 1, shadowSize: 2048 },
   high: { shadows: true, bloom: true, rain: 4000, ratio: Math.min(2, window.devicePixelRatio), shadowSize: 4096 },
 };
-let quality = QUALITY[store.get('twin.quality', 'medium')] ? store.get('twin.quality', 'medium') : 'medium';
+const savedQuality = store.get('twin.quality', 'medium');
+let quality = QUALITY[savedQuality] ? savedQuality : 'medium';
 $('quality').value = quality;
 
 const view = $('view3d');
@@ -79,6 +80,7 @@ $('quality').onchange = (e) => { quality = e.target.value; store.set('twin.quali
 
 // ------------------------------------------------------------------ materials and helpers
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.0, ...o });
+const rectEdges = (x0, y0, x1, y1) => [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]];
 const lineLoop = (pts, color, z = 0.03, opacity = 1) => {
   const g = new THREE.BufferGeometry().setFromPoints(pts.map(([x, y]) => P(x, y, z)));
   return new THREE.LineLoop(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity }));
@@ -137,7 +139,7 @@ function buildSite(s) {
   ground.rotation.x = -Math.PI / 2; ground.position.copy(P((x0 + x1) / 2, (y0 + y1) / 2, 0)); ground.receiveShadow = true;
   scene.add(ground); objs.ground = ground;
   const hoard = std(0xb9b2a4, { transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
-  [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]].forEach(([ax, ay, bx, by]) => {
+  rectEdges(x0, y0, x1, y1).forEach(([ax, ay, bx, by]) => {
     const len = Math.hypot(bx - ax, by - ay), wall = box(len, 2.4, 0.05, hoard, false);
     wall.position.copy(P((ax + bx) / 2, (ay + by) / 2, 1.2)); wall.rotation.y = Math.atan2(by - ay, bx - ax); scene.add(wall);
   });
@@ -147,7 +149,7 @@ function buildSite(s) {
   const pit = box(pw, 0.05, pd, std(0x111111, { roughness: 1 }), false); pit.position.y = 0.01; scene.add(pit);
   const bx0 = Math.min(...pxs) - 0.3, bx1 = Math.max(...pxs) + 0.3, by0 = Math.min(...pys) - 0.3, by1 = Math.max(...pys) + 0.3;
   const red = std(0xd02020, { roughness: 0.5 }), white = std(0xf2f2f2, { roughness: 0.5 });
-  [[bx0, by0, bx1, by0], [bx1, by0, bx1, by1], [bx1, by1, bx0, by1], [bx0, by1, bx0, by0]].forEach(([ax, ay, bx, by]) => {
+  rectEdges(bx0, by0, bx1, by1).forEach(([ax, ay, bx, by]) => {
     const n = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) / 0.5));
     for (let i = 0; i < n; i++) {
       const t0 = i / n, t1 = (i + 1) / n;
@@ -252,7 +254,7 @@ const POSES = {      // hips height, thigh and shin angles (left, right), arm sw
   squat: { h: 0.46, th: [-1.75, -1.75], sh: [2.2, 2.2] },
   kneel: { h: 0.58, th: [-1.5, 0.05], sh: [1.6, 1.55] },
 };
-function poseRig(r, posture, t, dt) {
+function poseRig(r, posture, dt) {
   const u = r.userData, walk = posture === 'walk';
   const base = POSES[walk ? 'stand' : posture] ?? POSES.stand;
   u.phase += walk ? dt * 7 : 0;
@@ -286,7 +288,7 @@ function draw(truth, arm, relay, dot) {
     u.last = [w.x, w.y];
     r.position.copy(P(w.x, w.y, 0));
     r.rotation.y = u.heading - Math.PI / 2;
-    poseRig(r, w.posture ?? 'stand', now / 1000, dt);
+    poseRig(r, w.posture ?? 'stand', dt);
     u.vest.color.set(w.edge_m <= 1.5 ? 0xef4444 : w.edge_m <= 3.0 ? 0xf59e0b : 0xe8f02a);
   }
   for (const [id, m] of workers) if (!seen.has(id)) { scene.remove(m); workers.delete(id); }
@@ -316,10 +318,11 @@ function singaporeHour() {
 }
 function setEnvironment(name) {
   const preset = site?.weathers.find(w => w.name === name);
-  if (!preset || (environment.name === name && environment.hour === Math.floor(singaporeHour() * 4))) return;
-  environment.name = name; environment.hour = Math.floor(singaporeHour() * 4);
-  environment.night = preset.night;
   let h = singaporeHour();
+  const quarter = Math.floor(h * 4);
+  if (!preset || (environment.name === name && environment.hour === quarter)) return;
+  environment.name = name; environment.hour = quarter;
+  environment.night = preset.night;
   if (!preset.night && (h < 7.5 || h > 18.5)) h = 10;          // the world shows day: keep the sky in step
   const elev = preset.night ? -10 : Math.max(5, 75 * Math.sin(Math.PI * (h - 7) / 12));
   const az = 90 + (h - 7) / 12 * 180;                             // east in the morning, west in the evening
@@ -341,6 +344,7 @@ function setEnvironment(name) {
 }
 
 // ------------------------------------------------------------------ px/m heatmap
+const BAND_RGBA = { green: [34, 197, 94, 120], amber: [245, 158, 11, 130], red: [239, 68, 68, 140] };   // bands from /api/coverage
 let heat = null;
 async function toggleHeatmap(on) {
   if (heat) heat.visible = on;
@@ -350,7 +354,7 @@ async function toggleHeatmap(on) {
   const g = cv.getContext('2d'), img = g.createImageData(c.nx, c.ny);
   for (let j = 0; j < c.ny; j++) for (let i = 0; i < c.nx; i++) {
     const v = c.ppm[j][i], k = ((c.ny - 1 - j) * c.nx + i) * 4;
-    const [r, gg, b, a] = v <= 0 ? [0, 0, 0, 0] : v >= 100 ? [34, 197, 94, 120] : v >= 60 ? [245, 158, 11, 130] : [239, 68, 68, 140];
+    const [r, gg, b, a] = v <= 0 ? [0, 0, 0, 0] : BAND_RGBA[c.bands.find(([limit]) => v >= limit)[1]];
     img.data.set([r, gg, b, a], k);
   }
   g.putImageData(img, 0, 0);

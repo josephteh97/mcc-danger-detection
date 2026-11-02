@@ -22,10 +22,7 @@ services:
   orin:
     environment: [TWIN_PROFILE=phase1]
     volumes: !override [orin_data:/data]
-    networks: !override
-      poe_lan: { ipv4_address: 192.168.10.2 }
-      usb_bus: {}
-      wan_4g: { ipv4_address: 172.30.4.2 }
+    networks: { usb_bus: {} }  # added to the orin's poe_lan and wan_4g from compose.yaml
 
   # v11 remote management only
   router: !reset null

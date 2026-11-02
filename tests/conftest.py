@@ -109,8 +109,9 @@ class Stack:
 
     def quiet(self):
         """Empty site, clear weather, no faults, app back in Monitoring."""
-        for f in ("4g_weak", "4g_outage", "arm_usb", "orin_hang", "camera_cable",
-                  *(("switch_hang", "site_power_cut") if self.profile == "v11" else ())):
+        for f in self.site["faults"]:            # every fault this profile has, except the one-shots
+            if f in ("power_cut", "switch_restart"):
+                continue
             try:
                 self.fault(f, restore=True)
             except AssertionError:

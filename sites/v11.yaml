@@ -19,7 +19,8 @@ camera:                            # 12 MP camera at the top of the wheeled stan
   height_m: 3.8                    # stand set to 3.8 m (window 2.7-5.7 m, U15)
   look_at: [0.0, 0.0]              # bearing: straight at the pit
   tilt_deg: 32.6                   # optical axis below horizontal; puts the warning ring's far edge at 122 px/m
-  render: { width: 1600, height: 1200, fps: 15 }   # 4:3 stream; coverage maths uses the native 4,000 x 3,000
+  render: { width: 1600, height: 1200, fps: 15, ir_night: true }   # 4:3 stream (coverage maths uses the native
+                                                                    # 4,000 x 3,000); IR monochrome at night
 
 arm:                               # laser on the stand, pivot directly below the camera
   xy: [0.0, -9.5]

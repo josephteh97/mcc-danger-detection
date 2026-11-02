@@ -60,8 +60,7 @@ def monthly_4g_gb(events_per_day=50, clip_mb=1.3, view_hours_per_day=1.0, view_m
 def report(site, **kw):
     net = dict(site.get("network") or {})
     net.update({k: v for k, v in kw.items() if v is not None})
-    data = monthly_4g_gb(net.get("events_per_day", 50), net.get("clip_mb", 1.3),
-                         net.get("view_hours_per_day", 1.0), net.get("view_mbps", 1.0))
+    data = monthly_4g_gb(**{k: net[k] for k in ("events_per_day", "clip_mb", "view_hours_per_day", "view_mbps") if k in net})
     plan = net.get("sim_plan_gb", 30)
     loads = link_loads(net.get("port_mbps", 1000))
     return {"data": data, "plan_gb": plan, "within_plan": data["total_gb"] <= plan, "links": loads,

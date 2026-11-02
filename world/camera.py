@@ -75,10 +75,13 @@ class PinholeCamera:
         s = -self.pos[2] / d[2]
         return float(self.pos[0] + s * d[0]), float(self.pos[1] + s * d[1])
 
-    def ground_maps(self):
-        """Per-pixel ground x, y and slant distance (inf where the ray misses the ground)."""
-        vv, uu = np.mgrid[0:self.height, 0:self.width].astype(np.float64)
-        d = self.rays(uu + 0.5, vv + 0.5)
+    def ground_maps(self, u=None, v=None):
+        """Per-pixel ground x, y and slant distance (inf where the ray misses the ground), for the
+        pixel grid u, v (default: every pixel's centre)."""
+        if u is None:
+            vv, uu = np.mgrid[0:self.height, 0:self.width].astype(np.float64)
+            u, v = uu + 0.5, vv + 0.5
+        d = self.rays(u, v)
         hit = d[..., 2] < -1e-6
         s = np.where(hit, -self.pos[2] / np.where(hit, d[..., 2], -1.0), np.inf)
         gx = self.pos[0] + s * d[..., 0]
@@ -150,11 +153,9 @@ class Lens:
         return d * s[:, None] + [self.cam.cx, self.cam.cy]
 
     def maps(self):
-        """cv2.remap maps: for each distorted pixel, where to sample the pinhole image."""
-        h, w = self.cam.height, self.cam.width
-        vv, uu = np.mgrid[0:h, 0:w].astype(np.float64)
-        dx, dy = uu - self.cam.cx, vv - self.cam.cy
-        r = np.hypot(dx, dy)
-        a = np.minimum(self.k * r / self.fp, math.pi / 2 - 1e-3)
-        s = np.where(r > 1e-9, self.cam.fx * np.tan(a) / self.k / np.maximum(r, 1e-9), self.cam.fx / self.fp)
-        return (self.cam.cx + dx * s).astype(np.float32), (self.cam.cy + dy * s).astype(np.float32)
+        """cv2.remap maps: for each distorted pixel, where to sample the pinhole image (the app's
+        own inverse, app.alarm.undistort_pixel, over the whole grid)."""
+        from app.alarm import undistort_pixel
+        vv, uu = np.mgrid[0:self.cam.height, 0:self.cam.width].astype(np.float64)
+        mx, my = undistort_pixel(uu, vv, self.params)
+        return mx.astype(np.float32), my.astype(np.float32)

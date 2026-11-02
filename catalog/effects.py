@@ -126,27 +126,28 @@ def battery_low_pct(site, sun_factor, days=3):
 
 # --------------------------------------------------------------------------- v11 plan totals
 
+def plan_parts(plan_products):
+    """A plan's own products (battery, panels, then its parts) from site["plan_products"][plan]."""
+    return [p for p in (plan_products["battery"], plan_products["solar"]) if p] + plan_products["parts"]
+
+
 def plan_totals(site, include_legacy=False):
     """Cost of the v11 pole per power plan: the common parts, plus each plan's battery, panels and
     own parts, the laser controller and other hardware. Legacy products are left out unless
     `include_legacy` (identification switched back on). -> {plan: {"total_sgd", "items"}}"""
-    from catalog import fitted_products, load_product
+    from catalog import fitted_products
     plans = site.get("power_plans") or {}
-    plan_ids = {n for p in plans.values() for n in [p.get("battery"), p.get("solar"), *p.get("parts", [])] if n}
+    plan_ids = {p["id"] for pp in site["plan_products"].values() for p in plan_parts(pp)}
+    plan_ids |= {site["fitted"]["battery"]["id"], site["fitted"]["solar"]["id"]}
     common = [(p["id"], p["price_sgd"]) for p in fitted_products(site)
-              if p["id"] not in plan_ids and p["id"] not in (site["fitted"]["battery"]["id"], site["fitted"]["solar"]["id"])
-              and (include_legacy or not p.get("legacy"))]
+              if p["id"] not in plan_ids and (include_legacy or not p.get("legacy"))]
     lc = site.get("laser_controller") or {}
     if lc.get("price_sgd"):
         common.append(("laser_controller", lc["price_sgd"]))
     other = site.get("power", {}).get("other_hardware_sgd", 0)
     out = {}
     for name, plan in plans.items():
-        items = list(common)
-        for cat in ("battery", "solar"):
-            if plan.get(cat):
-                items.append((plan[cat], load_product(cat, plan[cat])["price_sgd"]))
-        items += [(n, load_product("power_conv", n)["price_sgd"]) for n in plan.get("parts", [])]
+        items = list(common) + [(p["id"], p["price_sgd"]) for p in plan_parts(site["plan_products"][name])]
         if plan.get("other_sgd"):
             items.append(("plan extras", plan["other_sgd"]))
         items.append(("other hardware", other))
@@ -164,22 +165,25 @@ def native_size(camera):
     return tuple(camera["resolution_px"])
 
 
+def pinhole_fp(camera):
+    """f/p of a pinhole with the camera's native width and field of view: (N/2) / tan(θ/2)."""
+    return (native_size(camera)[0] / 2) / math.tan(math.radians(camera["hfov_deg"]) / 2)
+
+
 def lens(camera):
     """(f/p, q, D) from the native width N, field of view θ and the DORI centre ratio."""
-    n = native_size(camera)[0]
-    t = math.tan(math.radians(camera["hfov_deg"]) / 2)
     fp = camera.get("dori_fp_px")
     if not fp:
-        return (n / 2) / t, 1.0, 0.0
-    q = (n / 2) / (fp * t)
-    return float(fp), q, 3 * (1 - q) / t ** 2
+        return pinhole_fp(camera), 1.0, 0.0
+    q = pinhole_fp(camera) / fp
+    return float(fp), q, 3 * (1 - q) / math.tan(math.radians(camera["hfov_deg"]) / 2) ** 2
 
 
 def lens_for(camera, method):
     """(f/p, D) for the 'distortion' method (the DORI ratio and D) or the 'fov' method (pinhole)."""
+    if method == "fov":
+        return pinhole_fp(camera), 0.0
     fp, _, d = lens(camera)
-    if method == "fov" or not d:
-        return (native_size(camera)[0] / 2) / math.tan(math.radians(camera["hfov_deg"]) / 2), 0.0
     return fp, d
 
 
@@ -193,12 +197,13 @@ def camera_frame(site, pts, camera=None, mast=None):
     return (p - cam.pos) @ cam.R.T
 
 
-def native_density(site, pts, method="distortion", camera=None, mast=None):
+def native_density(site, pts, method="distortion", camera=None, mast=None, pc=None):
     """Native px/m at ground points: (f/p)·g / z, z the exact depth along the optical axis
     (not the slant range), g = 1 − D·u². Also returns whether each point is inside the native
-    image. -> (density, inside)"""
+    image. `pc`: the points already in the camera frame. -> (density, inside)"""
     camera = camera or site["fitted"]["camera"]
-    pc = camera_frame(site, pts, camera, mast)
+    if pc is None:
+        pc = camera_frame(site, pts, camera, mast)
     fp, d = lens_for(camera, method)
     z = pc[:, 2]
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -224,9 +229,10 @@ def processed_density(site, pts, detector=None, method="worst", camera=None, mas
     of the two at each point). -> (density, inside)"""
     camera = camera or site["fitted"]["camera"]
     detector = site.get("detector") if detector is None else detector
-    if method == "worst":
-        a, ia = native_density(site, pts, "fov", camera, mast)
-        b, ib = native_density(site, pts, "distortion", camera, mast)
+    if method == "worst":                          # both lens models on one camera-frame transform
+        pc = camera_frame(site, pts, camera, mast)
+        a, ia = native_density(site, pts, "fov", camera, pc=pc)
+        b, ib = native_density(site, pts, "distortion", camera, pc=pc)
         dens, inside = np.minimum(a, b), ia & ib
     else:
         dens, inside = native_density(site, pts, method, camera, mast)

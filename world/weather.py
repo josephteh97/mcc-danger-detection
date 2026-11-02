@@ -124,24 +124,18 @@ def make_drop_mask(h, w, coverage, rng):
     return cv2.GaussianBlur(mask, (5, 5), 1.5)
 
 
-def _sparse(mask, cut=0.01):
-    """Flat indices and weights of a mask's non-zero pixels (cached on the mask's identity)."""
-    key = id(mask)
-    hit = _SPARSE.get(key)
-    if hit is None or hit[0] is not mask:
-        idx = np.flatnonzero(mask > cut)
-        hit = _SPARSE[key] = (mask, idx, mask.ravel()[idx][:, None])
-    return hit[1], hit[2]
+def sparse(mask, cut=0.01):
+    """(flat indices, weights) of a mask's covered pixels: the form apply_drops and apply_rain take,
+    so each frame touches only those pixels. Build it once with the mask (the World caches both)."""
+    idx = np.flatnonzero(mask > cut)
+    return idx, mask.ravel()[idx][:, None]
 
 
-_SPARSE = {}
-
-
-def apply_drops(img, mask):
-    """Drops blur and brighten what is behind them; only the covered pixels are touched."""
-    if not mask.any():
+def apply_drops(img, drops):
+    """Drops (sparse(mask)) blur and brighten what is behind them; only the covered pixels change."""
+    idx, m = drops
+    if not len(idx):
         return img
-    idx, m = _sparse(mask)
     h, w = img.shape[:2]
     small = cv2.resize(img, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
     blurred = cv2.resize(cv2.GaussianBlur(small, (0, 0), 1.5), (w, h), interpolation=cv2.INTER_LINEAR)
@@ -173,7 +167,7 @@ def apply_rain(img, layer, preset):
     if layer is None:
         return img
     level = 150.0 if preset.night else 215.0
-    idx, a = _sparse(layer)
+    idx, a = layer                                     # sparse(rain layer)
     out = img.copy()
     flat = out.reshape(-1, 3)
     flat[idx] = flat[idx] * (1 - a) + level * a

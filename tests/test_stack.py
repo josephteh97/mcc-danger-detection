@@ -275,15 +275,10 @@ def test_trial_walk_in_via_dashboard(stack):
 
 
 # ---------------------------------------------------------------- v11: Ethernet laser controller, remote management
-def _exec(stack, service, cmd, timeout=None):
-    code, out = stack.sh(service, cmd if timeout is None else f"timeout {timeout} {cmd}")
-    return code, out
-
-
 def test_v11_laser_controller_on_poe_lan(v11):
     """The orin reaches the laser controller at 192.168.10.24:7001 and :7002; no container is on usb_bus."""
     stack = v11
-    code, out = _exec(stack, "orin", "python3 -c \"import socket;[socket.create_connection(('192.168.10.24',p),2).close() for p in (7001,7002)]\"")
+    code, out = stack.sh("orin", "python3 -c \"import socket;[socket.create_connection(('192.168.10.24',p),2).close() for p in (7001,7002)]\"")
     assert code == 0, out
     on_usb = [c.name for c in stack.dk.containers.list() if f"{PROJECT}_usb_bus" in c.attrs["NetworkSettings"]["Networks"]]
     assert not on_usb, on_usb
@@ -304,25 +299,25 @@ def test_v11_laser_controller_restart_reconnects(v11):
 
 def test_v11_engineer_ssh_to_ai_box(v11):
     """An engineer in the tailnet opens SSH to the AI box at its poe_lan address through the router."""
-    code, out = _exec(v11, "engineer", "ssh 192.168.10.2 'cat /data/status.json'")
+    code, out = v11.sh("engineer", "ssh 192.168.10.2 'cat /data/status.json'")
     assert code == 0 and '"state"' in out, out
 
 
 def test_v11_superior_cannot_reach_lan_but_sees_relay(v11):
     stack = v11
-    code, _ = _exec(stack, "superior", "nc -z -w 2 192.168.10.2 22")
+    code, _ = stack.sh("superior", "nc -z -w 2 192.168.10.2 22")
     assert code != 0, "the superior reached the pole's LAN"
-    stack.wait_for(lambda: '"live_ts": null' not in _exec(stack, "superior", "curl -s http://172.30.4.11:8090/status")[1]
-                   and _exec(stack, "superior", "curl -s http://172.30.4.11:8090/status")[0] == 0, 60, 2, "live view on the relay")
-    code, out = _exec(stack, "superior", "curl -s -o /dev/null -w '%{http_code} %{content_type}' http://172.30.4.11:8090/live.jpg")
+    stack.wait_for(lambda: '"live_ts": null' not in stack.sh("superior", "curl -s http://172.30.4.11:8090/status")[1]
+                   and stack.sh("superior", "curl -s http://172.30.4.11:8090/status")[0] == 0, 60, 2, "live view on the relay")
+    code, out = stack.sh("superior", "curl -s -o /dev/null -w '%{http_code} %{content_type}' http://172.30.4.11:8090/live.jpg")
     assert out.startswith("200 image/jpeg"), out
-    code, out = _exec(stack, "superior", "curl -s http://172.30.4.11:8090/events")
+    code, out = stack.sh("superior", "curl -s http://172.30.4.11:8090/events")
     assert code == 0 and out.startswith("["), out
 
 
 def test_v11_no_inbound_port_on_4g(v11):
     """A client on wan_4g outside the tailnet scans the router's 4G address: no port answers."""
-    code, out = _exec(v11, "superior", "sh -c 'for p in 22 80 443 1883 7001 7002 8022 8080 8554 41641; do "
+    code, out = v11.sh("superior", "sh -c 'for p in 22 80 443 1883 7001 7002 8022 8080 8554 41641; do "
                                        "nc -z -w 1 172.30.4.3 $p && echo open $p; done; true'")
     assert "open" not in out, out
 
@@ -358,12 +353,12 @@ def test_v11_switch_hang_and_remote_restart(v11):
         stack.wait_for(lambda: (s := stack.orin_status()) and not s["camera_ok"] and not s["arm_online"], 30, 1,
                        "camera and arm lost")
         t_hang = time.time()
-        stack.wait_for(lambda: '"uptime_s"' in _exec(stack, "superior", "curl -s http://172.30.4.11:8090/events")[1]
-                       and any(e.get("ts", 0) > t_hang for e in json.loads(_exec(stack, "superior",
+        stack.wait_for(lambda: '"uptime_s"' in stack.sh("superior", "curl -s http://172.30.4.11:8090/events")[1]
+                       and any(e.get("ts", 0) > t_hang for e in json.loads(stack.sh("superior",
                                "curl -s http://172.30.4.11:8090/events")[1]) if "uptime_s" in e), 15, 1,
                        "router status reaching the cloud during the hang")
         t0 = time.time()
-        code, out = _exec(stack, "engineer", "curl -s -m 90 -X POST http://100.64.0.1:8022/switch/restart")
+        code, out = stack.sh("engineer", "curl -s -m 90 -X POST http://100.64.0.1:8022/switch/restart")
         assert code == 0 and '"ok": true' in out, out
     finally:
         stack.fault("switch_hang", restore=True)

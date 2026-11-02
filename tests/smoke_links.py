@@ -14,18 +14,34 @@ PY = sys.executable
 
 
 class Emulator:
-    """Runs a device emulator as its own process on a fresh virtual serial port."""
+    """Runs a device emulator as its own process on a fresh virtual serial port, or listening on
+    TCP at `tcp` ('host:port', the v11 laser controller). `link` is what the app side opens."""
 
-    def __init__(self, script, seconds=30):
-        self.dir = tempfile.mkdtemp(prefix="vdev-")
-        self.link = os.path.join(self.dir, "port")
-        self.proc = subprocess.Popen([PY, os.path.join(ROOT, "devices", script), "--link", self.link,
-                                      "--run-for", str(seconds)], stdout=subprocess.DEVNULL)
+    def __init__(self, script, seconds=30, tcp=None):
+        if tcp:
+            self.link, where = tcp, ["--tcp", tcp]
+        else:
+            self.link = os.path.join(tempfile.mkdtemp(prefix="vdev-"), "port")
+            where = ["--link", self.link]
+        self.proc = subprocess.Popen([PY, os.path.join(ROOT, "devices", script), *where, "--run-for", str(seconds)],
+                                     stdout=subprocess.DEVNULL)
         deadline = time.monotonic() + 5
-        while not os.path.exists(self.link):
+        while not self._ready():
             if time.monotonic() > deadline:
-                raise RuntimeError(f"{script} did not create {self.link}")
+                self.proc.kill()
+                raise RuntimeError(f"{script} did not open {self.link}")
             time.sleep(0.02)
+
+    def _ready(self):
+        if os.path.isabs(self.link):
+            return os.path.exists(self.link)
+        import socket
+        host, _, port = self.link.rpartition(":")
+        try:
+            socket.create_connection((host, int(port)), timeout=0.2).close()
+            return True
+        except OSError:
+            return False
 
     def __enter__(self):
         return self

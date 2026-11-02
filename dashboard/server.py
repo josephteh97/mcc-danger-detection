@@ -16,7 +16,7 @@ from starlette.background import BackgroundTask
 
 import catalog
 from catalog import effects as fx
-from dashboard.faults import FAULTS, Faults, FaultError
+from dashboard.faults import Faults, FaultError
 from dashboard.live import Live
 from world import weather as wx
 from world.camera import PinholeCamera
@@ -33,7 +33,7 @@ SCENARIO_LABELS = {"single_walk_in": "single walk-in", "two_workers": "two worke
 
 live = Live(SITE, logs=LOGS, broker=os.environ.get("MQTT_BROKER", "172.30.4.10"),
             pole_id=os.environ.get("POLE_ID", "07"), world_control=os.environ.get("WORLD_CONTROL", "world:9200"))
-faults = Faults()
+faults = Faults(SITE["profile"])
 http = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
 
 
@@ -138,20 +138,20 @@ async def video(path: str, request: Request):
 
 # ------------------------------------------------------------------ site, scenarios, weather
 def _footprint(cam, lens, per_edge=12):
-    """The camera's ground footprint, traced along the frame edge through the lens (bowed in v11)."""
+    """The camera's ground footprint, traced along the frame edge through the lens (bowed in v11;
+    a pinhole's is its four corners)."""
     from app.alarm import undistort_pixel
     w, h = cam.width, cam.height
-    edge = [(u, h) for u in np.linspace(0, w, per_edge, endpoint=False)] + \
-           [(w, v) for v in np.linspace(h, 0, per_edge, endpoint=False)] + \
-           [(u, 0) for u in np.linspace(w, 0, per_edge, endpoint=False)] + \
-           [(0, v) for v in np.linspace(0, h, per_edge, endpoint=False)]
-    if lens is None:
-        edge = edge[::per_edge]                          # a pinhole's footprint is the four corners
+    n = per_edge if lens else 1
+    edge = [(u, h) for u in np.linspace(0, w, n, endpoint=False)] + \
+           [(w, v) for v in np.linspace(h, 0, n, endpoint=False)] + \
+           [(u, 0) for u in np.linspace(w, 0, n, endpoint=False)] + \
+           [(0, v) for v in np.linspace(0, h, n, endpoint=False)]
     out = []
     for u, v in edge:
         pu, pv = undistort_pixel(float(u), float(v), lens.params if lens else None)
-        d = cam.rays(np.array([pu]), np.array([pv]))[0]
-        s = 40.0 if d[2] >= -1e-9 else min(40.0, -cam.pos[2] / d[2])    # cap above the horizon at 40 m
+        d = cam.rays(np.array([float(pu)]), np.array([float(pv)]))[0]
+        s = 40.0 if d[2] >= -1e-9 else min(40.0, -cam.pos[2] / d[2])    # slant capped at 40 m (and above the horizon)
         out.append((float(cam.pos[0] + s * d[0]), float(cam.pos[1] + s * d[1])))
     return out
 
@@ -171,7 +171,7 @@ def site():
                           "rain_mm_h": p.rain_mm_h, "visibility_m": p.visibility_m, "light": p.light,
                           "wet_ground": p.wet_ground} for p in wx.PRESETS.values()],
             "camera_h": float(cam.pos[2]), "plans": list((SITE.get("power_plans") or {}).keys()),
-            "scenarios": [{"name": n, "label": SCENARIO_LABELS.get(n, n)} for n in SCENARIO_NAMES], "faults": FAULTS}
+            "scenarios": [{"name": n, "label": SCENARIO_LABELS.get(n, n)} for n in SCENARIO_NAMES], "faults": faults.table}
 
 
 async def _storm_events():
@@ -211,8 +211,8 @@ async def weather(name: str):
 # ------------------------------------------------------------------ faults
 @app.post("/fault/{name}")
 async def fault(name: str):
-    if name not in FAULTS:
-        raise HTTPException(404, f"unknown fault; valid: {', '.join(FAULTS)}")
+    if name not in faults.table:
+        raise HTTPException(404, f"unknown fault; valid: {', '.join(faults.table)}")
     try:
         return await asyncio.to_thread(faults.inject, name)
     except (FaultError, Exception) as e:
@@ -221,8 +221,8 @@ async def fault(name: str):
 
 @app.post("/fault/{name}/restore")
 async def fault_restore(name: str):
-    if name not in FAULTS:
-        raise HTTPException(404, f"unknown fault; valid: {', '.join(FAULTS)}")
+    if name not in faults.table:
+        raise HTTPException(404, f"unknown fault; valid: {', '.join(faults.table)}")
     try:
         return await asyncio.to_thread(faults.restore, name)
     except Exception as e:
@@ -234,11 +234,20 @@ async def fault_status():
     return {**await asyncio.to_thread(faults.status), "power_cut_plan": faults.power_cut_plan}
 
 
+_ONCE = {}          # results that depend only on SITE, worked out on first use
+
+
+async def once(key, fn, *args):
+    if key not in _ONCE:
+        _ONCE[key] = await asyncio.to_thread(fn, *args)
+    return _ONCE[key]
+
+
 @app.get("/api/coverage")
 async def coverage_map():
     """px/m in the processed image on a ground grid, for the 3D view's heatmap."""
     from dashboard import v11
-    return await asyncio.to_thread(v11.coverage, SITE)
+    return await once("coverage", v11.coverage, SITE)
 
 
 @app.get("/api/v11/hud")
@@ -247,17 +256,17 @@ async def hud():
     from dashboard import v11
     if SITE["profile"] != "v11":
         return {"profile": SITE["profile"]}
-    out = await asyncio.to_thread(v11.hud_static, SITE)
-    out["power_cut"] = faults.power_cut_plan
-    return {"profile": "v11", **out}
+    out = await once("hud", v11.hud_static, SITE)
+    est, day = out["data"]["month_estimate_gb"], time.localtime().tm_mday
+    return {"profile": "v11", **out, "data": {**out["data"], "month_to_date_gb": round(est * day / 30, 1)},
+            "power_cut": faults.power_cut_plan}
 
 
 @app.get("/api/v11/whatif")
 async def whatif_fields():
     """The numbers the what-if panel can change (products and site settings) and today's results."""
     from dashboard import v11
-    fields = await asyncio.to_thread(v11.fields)
-    return {**fields, "result": await asyncio.to_thread(v11.whatif)}
+    return {**await once("fields", v11.fields), "result": await once("whatif", v11.whatif)}
 
 
 @app.post("/api/v11/whatif")
@@ -284,8 +293,7 @@ async def router_switch_restart():
 def catalog_list():
     out = {}
     for cat in catalog.CATEGORIES:
-        fitted = SITE["products"].get(cat) or []
-        fitted = fitted if isinstance(fitted, list) else [fitted]
+        fitted = {p["id"] for p in catalog.fitted(SITE, cat)}
         out[cat] = [{"id": p, "name": (prod := catalog.load_product(cat, p))["name"], "verified": prod["verified"],
                      "legacy": prod.get("legacy", False), "fitted": p in fitted}
                     for p in catalog.list_products(cat)]

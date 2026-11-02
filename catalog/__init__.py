@@ -5,8 +5,7 @@ field, or with a field of the wrong type, is refused with the file and field nam
 """
 from __future__ import annotations
 
-import contextlib
-import contextvars
+import functools
 import os
 
 import yaml
@@ -24,6 +23,7 @@ class CatalogError(ValueError):
     pass
 
 
+@functools.cache
 def load_schema(category):
     path = os.path.join(CATALOG_DIR, category, "_schema.yaml")
     if not os.path.exists(path):
@@ -61,21 +61,9 @@ def list_products(category):
     return sorted(f[:-5] for f in os.listdir(folder) if f.endswith(".yaml") and not f.startswith("_"))
 
 
-_OVERRIDES = contextvars.ContextVar("catalog_overrides", default=None)
-
-
-@contextlib.contextmanager
-def overriding(products):
-    """Within the block, load_product returns products with these fields changed, e.g.
-    {"lifepo4_24v_50ah": {"capacity_ah": 100}}: the dashboard's what-if numbers. Files are untouched."""
-    token = _OVERRIDES.set(products or None)
-    try:
-        yield
-    finally:
-        _OVERRIDES.reset(token)
-
-
-def load_product(category, name):
+def load_product(category, name, changed=None):
+    """One product file, validated against its folder's schema. `changed` replaces some of its
+    fields for this load only (the dashboard's what-if numbers); the file is untouched."""
     path = os.path.join(CATALOG_DIR, category, f"{name}.yaml")
     if not os.path.exists(path):
         raise CatalogError(f"no product '{name}' in catalog/{category} "
@@ -84,7 +72,6 @@ def load_product(category, name):
         data = yaml.safe_load(f)
     product = dict(validate(category, data, os.path.relpath(path, ROOT_DIR)))
     product["id"] = name
-    changed = (_OVERRIDES.get() or {}).get(name)
     if changed:
         product.update(validate(category, {**product, **changed}, f"what-if values for {name}"))
         product["id"], product["edited"] = name, sorted(changed)
@@ -136,15 +123,17 @@ def app_config_path(profile=None):
     return os.path.join(ROOT_DIR, "app", "config.yaml" if profile == "phase1" else f"config.{profile}.yaml")
 
 
-def load_site(path=None, overrides=None, profile=None):
-    """Load a site profile and resolve the fitted products. `profile` picks sites/<profile>.yaml;
-    without it, `path` (a site file or the site.yaml selector) or the active profile is used.
-    `overrides` swaps products by category, e.g. {"camera": "dome_4mp_2_8mm_generic"}."""
+def load_site(path=None, overrides=None, profile=None, product_overrides=None):
+    """Load a site profile and resolve the fitted products (and each power plan's products, as
+    site["plan_products"]). `profile` picks sites/<profile>.yaml; without it, `path` (a site file or
+    the site.yaml selector) or the active profile is used. `overrides` swaps products by category,
+    e.g. {"camera": "dome_4mp_2_8mm_generic"}; `product_overrides` changes fields of products by id,
+    e.g. {"lifepo4_24v_50ah": {"capacity_ah": 100}} (what-if numbers; files untouched)."""
     if profile is None and path:
         with open(path) as f:
             site = yaml.safe_load(f)
         if "site" not in site:                     # a selector file
-            return load_site(overrides=overrides, profile=active_profile(path))
+            return load_site(overrides=overrides, profile=active_profile(path), product_overrides=product_overrides)
         profile = site.get("profile", os.path.splitext(os.path.basename(path))[0])
     else:
         profile = profile or active_profile()
@@ -160,18 +149,30 @@ def load_site(path=None, overrides=None, profile=None):
     unknown = [c for c in fitted_names if c not in CATEGORIES]
     if unknown:
         raise CatalogError(f"{path}: products: unknown category {', '.join(unknown)}")
-    site["fitted"] = {c: [load_product(c, n) for n in names] if isinstance(names, list) else load_product(c, names)
+    edits = product_overrides or {}
+
+    def product(category, name):
+        return load_product(category, name, edits.get(name))
+    site["fitted"] = {c: [product(c, n) for n in names] if isinstance(names, list) else product(c, names)
                       for c, names in fitted_names.items()}
+    site["plan_products"] = {
+        name: {"battery": product("battery", p["battery"]) if p.get("battery") else None,
+               "solar": product("solar", p["solar"]) if p.get("solar") else None,
+               "parts": [product("power_conv", n) for n in p.get("parts", [])]}
+        for name, p in (site.get("power_plans") or {}).items()}
     check_laser_fit(site["fitted"]["laser"])
     return site
 
 
+def fitted(site, category):
+    """The products fitted in one category, as a list (empty, one, or several like power_conv)."""
+    p = site["fitted"].get(category)
+    return [] if p is None else p if isinstance(p, list) else [p]
+
+
 def fitted_products(site):
     """Every fitted product as a flat list (categories that fit several, like power_conv, expanded)."""
-    out = []
-    for p in site["fitted"].values():
-        out.extend(p if isinstance(p, list) else [p])
-    return out
+    return [p for c in site["fitted"] for p in fitted(site, c)]
 
 
 def validate_all():

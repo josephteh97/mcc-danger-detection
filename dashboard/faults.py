@@ -10,14 +10,13 @@ import os
 import time
 
 PROJECT = os.environ.get("TWIN_PROJECT", "twin")
-PROFILE = os.environ.get("TWIN_PROFILE", "phase1")
 WAN = "$(ip -o -4 addr | awk '/172\\.30\\.4\\./{print $2}')"
 ARM_BRIDGE = "socat TCP-LISTEN:7001,reuseaddr,fork FILE:/tmp/vdev/arm,raw,echo=0"
 ARM_TCP = "python3 devices/arm_emulator.py --tcp 0.0.0.0:7001 --state /logs/arm.jsonl"
 POE_LAN = {"camera": "192.168.10.20", "orin": "192.168.10.2", "devices": "192.168.10.24"}   # on the switch
 SWITCH_BOOT_S = float(os.environ.get("TWIN_SWITCH_BOOT_S", "15"))
 
-FAULTS = {
+FAULTS = {                     # the guide's fault table (phase 1)
     "camera_cable": "Camera cable unplugged",
     "4g_weak": "4G weak (120 ms +-40 ms, 5% loss)",
     "4g_outage": "4G outage (100% loss)",
@@ -25,14 +24,19 @@ FAULTS = {
     "orin_hang": "Orin software hangs",
     "power_cut": "Power cut and restore",
 }
-if PROFILE == "v11":
-    FAULTS.update({
-        "arm_usb": "Laser controller arm link down",
-        "orin_hang": "AI box hangs (PoE watchdog power-cycles port 4)",
-        "switch_hang": "PoE switch hangs (router stays up)",
-        "switch_restart": "Router-driven switch restart",
-        "site_power_cut": "Site power cut (battery and shutdown stages)",
-    })
+V11_FAULTS = {                 # the v11 pole: Ethernet laser controller, PoE switch, site power
+    "arm_usb": "Laser controller arm link down",
+    "orin_hang": "AI box hangs (PoE watchdog power-cycles port 4)",
+    "switch_hang": "PoE switch hangs (router stays up)",
+    "switch_restart": "Router-driven switch restart",
+    "site_power_cut": "Site power cut (battery and shutdown stages)",
+}
+# How the arm link is cut and restored: (pkill pattern, pgrep pattern of the running link, its command).
+# Phase 1 uses the guide's command; the pgrep pattern is anchored so it cannot match our own shell.
+ARM_LINK = {
+    "phase1": ("TCP-LISTEN:7001", "^socat TCP-LISTEN:7001", ARM_BRIDGE),
+    "v11": ("arm_emulator.py --tcp", "^python3 devices/arm_emulator.py --tcp", ARM_TCP),
+}
 
 
 class FaultError(RuntimeError):
@@ -40,8 +44,11 @@ class FaultError(RuntimeError):
 
 
 class Faults:
-    def __init__(self, client=None):
+    def __init__(self, profile="phase1", client=None):
         self._client = client
+        self.profile = profile
+        self.table = {**FAULTS, **(V11_FAULTS if profile == "v11" else {})}
+        self.arm_kill, self.arm_alive, self.arm_cmd = ARM_LINK[profile]
         self.active = {}
         self.power_cut_plan = None
 
@@ -61,8 +68,14 @@ class Faults:
             raise FaultError(f"{service}: '{cmd}' exited {res.exit_code}: {res.output.decode(errors='replace')[-200:]}")
         return res
 
+    def _poe_lan(self):
+        """The poe_lan network (fresh) and the names of the containers on it."""
+        net = self.dk.networks.get(f"{PROJECT}_poe_lan")
+        net.reload()
+        return net, {c.name for c in net.containers}
+
     def inject(self, name):
-        if name not in FAULTS:
+        if name not in self.table:
             raise KeyError(name)
         if name == "camera_cable":
             self.dk.networks.get(f"{PROJECT}_poe_lan").disconnect(f"{PROJECT}-camera-1")
@@ -71,9 +84,7 @@ class Faults:
         elif name == "4g_outage":
             self._exec("orin", f"tc qdisc replace dev {WAN} root netem loss 100%")
         elif name == "switch_hang":
-            net = self.dk.networks.get(f"{PROJECT}_poe_lan")
-            net.reload()
-            on = {c.name for c in net.containers}
+            net, on = self._poe_lan()
             for svc in POE_LAN:
                 if f"{PROJECT}-{svc}-1" in on:
                     net.disconnect(f"{PROJECT}-{svc}-1")
@@ -81,12 +92,8 @@ class Faults:
             return self.switch_restart()
         elif name == "site_power_cut":
             self.power_cut_plan = site_power_cut()
-        elif name == "arm_usb" and PROFILE == "v11":    # the arm's TCP link on the laser controller
-            res = self.container("devices").exec_run(["pkill", "-f", "arm_emulator.py --tcp"])
-            if res.exit_code not in (0, 1):
-                raise FaultError(f"devices: pkill exited {res.exit_code}")
-        elif name == "arm_usb":            # the guide's command, run directly: no shell of ours to match
-            res = self.container("devices").exec_run(["pkill", "-f", "TCP-LISTEN:7001"])
+        elif name == "arm_usb":            # run directly, not in a shell, so pkill cannot match our own shell
+            res = self.container("devices").exec_run(["pkill", "-f", self.arm_kill])
             if res.exit_code not in (0, 1):
                 raise FaultError(f"devices: pkill exited {res.exit_code}")
         elif name == "orin_hang":
@@ -103,12 +110,11 @@ class Faults:
         return {"ok": True, "fault": name}
 
     def restore(self, name):
-        if name not in FAULTS:
+        if name not in self.table:
             raise KeyError(name)
         if name == "camera_cable":
-            net = self.dk.networks.get(f"{PROJECT}_poe_lan")
-            net.reload()
-            if f"{PROJECT}-camera-1" not in [c.name for c in net.containers]:
+            net, on = self._poe_lan()
+            if f"{PROJECT}-camera-1" not in on:
                 net.connect(f"{PROJECT}-camera-1", ipv4_address="192.168.10.20")
         elif name in ("4g_weak", "4g_outage"):
             self._exec("orin", f"tc qdisc del dev {WAN} root 2>/dev/null || true")
@@ -118,10 +124,8 @@ class Faults:
             pass
         elif name == "site_power_cut":
             self.power_cut_plan = None
-        elif name == "arm_usb" and PROFILE == "v11":
-            self._exec("devices", f"pgrep -f '^python3 devices/arm_emulator.py --tcp' >/dev/null || exec {ARM_TCP}", detach=True)
-        elif name == "arm_usb":            # anchored: unanchored, pgrep would match this shell's own command line
-            self._exec("devices", f"pgrep -f '^socat TCP-LISTEN:7001' >/dev/null || exec {ARM_BRIDGE}", detach=True)
+        elif name == "arm_usb":
+            self._exec("devices", f"pgrep -f '{self.arm_alive}' >/dev/null || exec {self.arm_cmd}", detach=True)
         elif name == "orin_hang":
             c = self.container("orin")
             if c.status == "paused":
@@ -134,9 +138,7 @@ class Faults:
         return {"ok": True, "fault": name, "restored": True}
 
     def _reconnect_switch(self):
-        net = self.dk.networks.get(f"{PROJECT}_poe_lan")
-        net.reload()
-        on = {c.name for c in net.containers}
+        net, on = self._poe_lan()
         for svc, ip in POE_LAN.items():
             if f"{PROJECT}-{svc}-1" not in on:
                 net.connect(f"{PROJECT}-{svc}-1", ipv4_address=ip)

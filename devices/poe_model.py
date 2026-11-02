@@ -18,13 +18,10 @@ CLASS_W = {0: 15.4, 1: 4.0, 2: 7.0, 3: 15.4, 4: 30.0, 5: 45.0, 6: 60.0, 7: 75.0,
 
 def efficiencies(site):
     """Conversion efficiencies: the site's defaults, replaced by the fitted converters' own figures."""
-    eff = dict((site.get("power") or {}).get("efficiency") or {})
-    eff.setdefault("stepup", 0.94)
-    eff.setdefault("cable", 0.97)
-    eff.setdefault("splitter", 0.90)
-    eff.setdefault("dc12", 0.92)
-    convs = site["fitted"].get("power_conv") or []
-    for p in convs if isinstance(convs, list) else [convs]:
+    from catalog import fitted
+    eff = {"stepup": 0.94, "cable": 0.97, "splitter": 0.90, "dc12": 0.92,
+           **((site.get("power") or {}).get("efficiency") or {})}
+    for p in fitted(site, "power_conv"):
         key = {"stepup": "stepup", "splitter": "splitter", "injector": "dc12"}.get(p.get("kind"))
         if key:
             eff[key] = p["efficiency"]
@@ -49,15 +46,13 @@ def port_table(site, include_legacy=None, extra=None):
     from catalog import load_product
     eff = efficiencies(site)
     include_legacy = site.get("identify_enabled", False) if include_legacy is None else include_legacy
-    entries = {e["port"]: dict(e) for e in site["poe_ports"]}
+    ports = {e["port"]: (e, *port_device(site, e)) for e in site["poe_ports"]}
     for x in extra or []:
         prod = load_product(x["category"], x["product"])
-        entries[x["port"]] = {"port": x["port"], "device": x["category"], "_product": prod,
-                              "poe_class": prod.get("poe_class", 4)}
+        ports[x["port"]] = ({"poe_class": prod.get("poe_class", 4)}, prod["id"], prod)
     rows = []
-    for port in sorted(entries):
-        e = entries[port]
-        name, prod = (e["_product"]["id"], e["_product"]) if "_product" in e else port_device(site, e)
+    for port in sorted(ports):
+        e, name, prod = ports[port]
         row = {"port": port, "device": name or "spare", "class": None, "reserved_w": 0.0, "draw_typ_w": 0.0,
                "draw_max_w": 0.0, "data_only": bool(e.get("data_only"))}
         if prod is None or e.get("data_only") or (prod.get("legacy") and not include_legacy):

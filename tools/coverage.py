@@ -88,10 +88,16 @@ def warn_ring(site, n=360):
     return _ring(tuple(map(tuple, site["site"]["pit"])), site["zones"]["warn_buffer_m"], n).copy()
 
 
+def _rho(site, rho=None, detector=None):
+    """The required density: given, else the detector's (the site's), else 100 px/m."""
+    detector = site.get("detector") if detector is None else detector
+    return rho or (detector or {}).get("density_px_per_m", 100)
+
+
 def ring_check(site, detector=None, rho=None, method="worst"):
     """Processed-image density at every point of the warning ring. -> dict"""
     detector = site.get("detector") if detector is None else detector
-    rho = rho or (detector or {}).get("density_px_per_m", 100)
+    rho = _rho(site, rho, detector)
     ring = warn_ring(site)
     dens, inside = fx.processed_density(site, ring, detector, method)
     low = [(round(float(x), 2), round(float(y), 2), round(float(v), 1))
@@ -103,7 +109,7 @@ def ring_check(site, detector=None, rho=None, method="worst"):
 def height_window(site, rho=None):
     """Allowed camera heights: h ≥ D_far·tan θ_min (sin θ_min = 2 px / (ρ·0.1 m)) and
     h ≤ D_near·tan 45°, with D_far and D_near the ground distances to the warning ring."""
-    rho = rho or (site.get("detector") or {}).get("density_px_per_m", 100)
+    rho = _rho(site, rho)
     along = (warn_ring(site) - np.asarray(site["camera"]["xy"])) @ _bearing(site)[1]
     d_far, d_near = float(along.max()), float(along.min())
     theta_min = math.asin(FOOT_PX / (rho * FOOT_M))
@@ -114,18 +120,17 @@ def pose_check(site, rho=None):
     """Is the stand's pose inside both windows? Near corners must be in the image, the far edge
     must keep the density (field-of-view method, as the conservative sizing), and the camera
     height must be inside the height window."""
-    rho = rho or (site.get("detector") or {}).get("density_px_per_m", 100)
+    rho = _rho(site, rho)
     ring = warn_ring(site)
-    _, inside = fx.native_density(site, ring, "fov")
-    _, inside_d = fx.native_density(site, ring, "distortion")
+    _, inside = fx.processed_density(site, ring, method="worst")   # in the image by both lens models
     look, fwd = _bearing(site)
     far = look + fwd * (float(((ring - look) @ fwd).max()))
     far_ppm = float(fx.processed_density(site, [far], method="fov")[0][0])
     h_min, h_max, d_far, d_near = height_window(site, rho)
     h = site["camera"].get("height_m", site["fitted"]["mast"]["height_m"])
     problems = []
-    if not (inside.all() and inside_d.all()):
-        problems.append(f"{int((~(inside & inside_d)).sum())} warning-ring points outside the image")
+    if not inside.all():
+        problems.append(f"{int((~inside).sum())} warning-ring points outside the image")
     if far_ppm < rho:
         problems.append(f"far edge {far_ppm:.0f} px/m < {rho}")
     if not h_min <= h <= h_max:
@@ -169,11 +174,10 @@ def laser_reach(site):
     """Can the beam reach every point of the alarm zone between the arm's tilt stops?"""
     arm = site["arm"]
     lo, hi = arm.get("tilt_stops_deg", [0.5, 89.5])
-    h = arm["pivot_h_m"]
+    h, xy, corners = arm["pivot_h_m"], np.asarray(arm["xy"], float), alarm_zone_corners(site)
     reach_max, reach_min = h / math.tan(math.radians(lo)), h / math.tan(math.radians(hi))
-    dists = np.linalg.norm(alarm_zone_corners(site) - np.asarray(arm["xy"], float), axis=1)
-    far = float(dists.max())
-    near = float(np.linalg.norm(np.clip(np.asarray(arm["xy"]), *alarm_zone_corners(site)[[0, 2]]) - arm["xy"]))
+    far = float(np.linalg.norm(corners - xy, axis=1).max())
+    near = float(np.linalg.norm(np.clip(xy, corners[0], corners[2]) - xy))
     ok = far <= reach_max and near >= reach_min
     return {"ok": ok, "far_m": far, "reach_m": reach_max, "near_m": near, "min_reach_m": reach_min,
             "shortfall_m": max(0.0, far - reach_max)}
@@ -183,7 +187,7 @@ def laser_reach(site):
 
 def report(site):
     cam = site["fitted"]["camera"]
-    rho = (site.get("detector") or {}).get("density_px_per_m", 100)
+    rho = _rho(site)
     fp, q, d = fx.lens(cam)
     lines = [f"camera {cam['id']}: f/p {fp:.0f} px, q {q:.3f}, D {d:.3f}"]
     for m, (s, dist) in largest_zone(cam, rho).items():

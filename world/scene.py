@@ -192,7 +192,7 @@ class Scene:
             return
         w.down, w.moving = None, True
         while dt > 0 and w.path:
-            tx, ty, wait, *posture = w.path[0]
+            tx, ty, wait, posture = w.path[0]
             dx, dy = tx - w.x, ty - w.y
             dist = math.hypot(dx, dy)
             step = w.speed * dt
@@ -202,7 +202,7 @@ class Scene:
                 w.path.pop(0)
                 if wait > 0:
                     w.wait_until = self.t + wait
-                    w.down = posture[0] if posture and posture[0] in DOWN else None
+                    w.down = posture if posture in DOWN else None
                     w.moving = False
                     return
             else:

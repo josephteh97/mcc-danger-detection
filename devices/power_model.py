@@ -21,8 +21,30 @@ INVERTER_IDLE_W = 20.0      # a small 24 V -> 230 V inverter left on all day
 INVERTER_EFF = 0.91
 
 
+def in_window(hour, window):
+    """Is `hour` inside the daily window (a, b)? A window with a > b wraps past midnight."""
+    a, b = window
+    return (hour >= a or hour < b) if a > b else a <= hour < b
+
+
+class _SolarDay:
+    """The floodlight hours and the daily solar curve, shared by the phase-1 and v11 models
+    (needs flood_hours, daylight, panel_w, peak_sun_h and system_eff)."""
+
+    def flood_on(self, hour):
+        return in_window(hour, self.flood_hours)
+
+    def solar_w(self, hour, sun_factor):
+        a, b = self.daylight
+        if not a <= hour < b:
+            return 0.0
+        weights = [math.sin(math.pi * (h + 0.5 - a) / (b - a)) for h in range(a, b)]
+        daily_wh = self.panel_w * self.peak_sun_h * self.system_eff * sun_factor
+        return daily_wh * weights[hour - a] / sum(weights)
+
+
 @dataclass
-class PowerConfig:
+class PowerConfig(_SolarDay):
     base_w: float = 33.0              # AI box, camera, switch, modem, idle devices: all day
     flood_w: float = 30.0             # floodlight, on from 19:00 to 07:00
     flood_hours: tuple = (19, 7)
@@ -32,10 +54,6 @@ class PowerConfig:
     peak_sun_h: float = 4.0           # an average day
     system_eff: float = 0.70
     daylight: tuple = (7, 19)
-
-    def flood_on(self, hour):
-        a, b = self.flood_hours
-        return (hour >= a or hour < b) if a > b else a <= hour < b
 
     def load_w(self, hour):
         w = self.base_w
@@ -54,14 +72,6 @@ class PowerConfig:
             return 0.0
         lamp_wh = sum(self.flood_w for h in range(24) if self.flood_on(h))
         return INVERTER_IDLE_W * 24 + lamp_wh * (1 / INVERTER_EFF - 1)
-
-    def solar_w(self, hour, sun_factor):
-        a, b = self.daylight
-        if not a <= hour < b:
-            return 0.0
-        weights = [math.sin(math.pi * (h + 0.5 - a) / (b - a)) for h in range(a, b)]
-        daily_wh = self.panel_w * self.peak_sun_h * self.system_eff * sun_factor
-        return daily_wh * weights[hour - a] / sum(weights)
 
     @classmethod
     def from_site(cls, site, **overrides):
@@ -121,28 +131,23 @@ def bus_watts(device_w, eff, via_splitter=False):
 
 def v11_loads(site):
     """Typical bus watts per load, grouped by what sheds them. -> {name: (watts, group)}
-    group: 'poe' (off at Stage 2), 'router', 'bus' (monitor and relays), 'flood' (night, Stage 1)."""
-    from devices.poe_model import efficiencies
+    group: 'poe' (off at Stage 2), 'router', 'bus' (monitor and relays), 'flood' (night, Stage 1).
+    PoE devices are the switch's port table, at its typical draw, through the step-up."""
+    from catalog import fitted
+    from devices.poe_model import efficiencies, port_table
     eff, f = efficiencies(site), site["fitted"]
-    out = {}
-    for e in site["poe_ports"]:
-        dev = e.get("device")
-        if not dev or e.get("data_only"):
-            continue
-        prod = site["laser_controller"] if dev == "laser_controller" else f[dev]
-        if prod.get("legacy"):
-            continue
-        out[dev] = (bus_watts(prod["watts_typ"], eff, bool(e.get("via"))), "poe")
+    out = {r["device"]: (r["draw_typ_w"] / eff["stepup"], "poe")
+           for r in port_table(site, include_legacy=False) if r["class"] is not None}
     out["switch"] = (f["switch"]["watts_typ"] / eff["stepup"], "poe")
     out["router"] = (f["router"]["watts_typ"] / eff["dc12"], "router")
-    for p in f.get("monitor") or []:
+    for p in fitted(site, "monitor"):
         out[p["id"]] = (p["watts_typ"], "bus")
     out["floodlight"] = (f["floodlight"]["power_w"], "flood")
     return out
 
 
 @dataclass
-class V11PowerConfig:
+class V11PowerConfig(_SolarDay):
     plan: str = "B"
     loads: dict = None
     flood_hours: tuple = (19, 7)
@@ -162,26 +167,24 @@ class V11PowerConfig:
 
     @classmethod
     def from_site(cls, site, plan="B", socket_mode=None, **overrides):
-        from catalog import load_product
-        p = site["power_plans"][plan]
+        """The plan's products come from site["plan_products"] (resolved once by catalog.load_site)."""
+        prods = site["plan_products"][plan]
         pw = site.get("power", {})
-        bat = load_product("battery", p["battery"])
+        bat = prods["battery"]
+        parts = prods["parts"] if site["power_plans"][plan].get("socket") else []   # fed by the site socket
+        s1, s2 = pw.get("stage1") or {}, pw.get("stage2") or {}
         cfg = cls(plan=plan, loads=v11_loads(site),
                   flood_hours=tuple(pw.get("floodlight_hours", (19, 7))),
                   daylight=tuple(pw.get("daylight_hours", (7, 19))),
                   battery_wh=bat["voltage_v"] * bat["capacity_ah"],
-                  panel_w=load_product("solar", p["solar"])["panel_w"] if p.get("solar") else 0.0,
-                  psu_w=next((load_product("power_conv", n)["rated_w"] for n in p.get("parts", [])
-                              if load_product("power_conv", n)["kind"] == "psu"), 0.0),
-                  charger_w=sum(load_product("power_conv", n)["rated_w"] * load_product("power_conv", n)["efficiency"]
-                                for n in p.get("parts", []) if load_product("power_conv", n)["kind"] == "charger"),
-                  socket_mode=socket_mode or ("always" if p.get("socket") else "always"),
+                  panel_w=prods["solar"]["panel_w"] if prods["solar"] else 0.0,
+                  psu_w=next((x["rated_w"] for x in parts if x["kind"] == "psu"), 0.0),
+                  charger_w=sum(x["rated_w"] * x["efficiency"] for x in parts if x["kind"] == "charger"),
+                  socket_mode=socket_mode or "always",
                   night_off=tuple((pw.get("socket_schedule") or {}).get("night_off", (22, 6))),
                   alerts_pct=tuple(pw.get("monitor_alerts_pct", (50, 30, 10))),
-                  stage1=((pw.get("stage1") or {}).get("off_pct", 30), (pw.get("stage1") or {}).get("on_pct", 40)),
-                  stage2=((pw.get("stage2") or {}).get("off_pct", 10), (pw.get("stage2") or {}).get("on_pct", 20)))
-        if not p.get("socket"):
-            cfg.psu_w = cfg.charger_w = 0.0
+                  stage1=(s1.get("off_pct", 30), s1.get("on_pct", 40)),
+                  stage2=(s2.get("off_pct", 10), s2.get("on_pct", 20)))
         return replace(cfg, **overrides)
 
     def group_w(self, group):
@@ -189,18 +192,14 @@ class V11PowerConfig:
 
     def average_load_w(self):
         """Average bus load with no alarms (floodlight on its hours)."""
-        flood_h = sum(1 for h in range(24) if PowerConfig.flood_on(self, h))
+        flood_h = sum(1 for h in range(24) if self.flood_on(h))
         return sum(w for w, g in self.loads.values() if g != "flood") + self.group_w("flood") * flood_h / 24
-
-    def solar_w(self, hour, sun_factor):
-        return PowerConfig.solar_w(self, int(hour), sun_factor) if self.panel_w else 0.0
 
     def socket_on(self, t_h, hour, weekday, off_windows):
         if any(a <= t_h < b for a, b in off_windows):
             return False
         if self.socket_mode == "night_off":
-            a, b = self.night_off
-            return not ((hour >= a or hour < b) if a > b else a <= hour < b)
+            return not in_window(hour, self.night_off)
         if self.socket_mode == "weekend_off":
             return weekday < 5
         return True
@@ -216,7 +215,7 @@ def simulate_v11(cfg, sun_factors, socket_off=(), step_h=0.1, start_weekday=4, e
     stage1 = stage2 = flat = False
     armed = {a: True for a in cfg.alerts_pct}
     events, trace, lowest = [], [], 100.0
-    dark_h, router_after_s2, s2_since = 0.0, 0.0, None
+    dark_h, router_after_s2 = 0.0, 0.0
     n = int(round((24 * len(sun_factors) + extra_h) / step_h))
     for i in range(n):
         t = i * step_h
@@ -230,7 +229,7 @@ def simulate_v11(cfg, sun_factors, socket_off=(), step_h=0.1, start_weekday=4, e
             load += cfg.group_w("bus") + cfg.group_w("router")
             if not stage2:
                 load += cfg.group_w("poe")
-                if not stage1 and PowerConfig.flood_on(cfg, hour):
+                if not stage1 and cfg.flood_on(hour):
                     load += cfg.group_w("flood")
         if socket and cfg.psu_w:                        # Plan A: the supply carries the load and charges
             net = min(cfg.psu_w - load, cfg.charge_c * cap)
@@ -253,10 +252,10 @@ def simulate_v11(cfg, sun_factors, socket_off=(), step_h=0.1, start_weekday=4, e
             stage1 = False
             events.append((round(t, 1), "Stage 1 cleared"))
         if not stage2 and pct < cfg.stage2[0]:
-            stage2, s2_since = True, t
+            stage2 = True
             events.append((round(t, 1), "Stage 2: step-up off (switch, AI box, camera, horn, laser controller)"))
         elif stage2 and pct >= cfg.stage2[1]:
-            stage2, s2_since = False, None
+            stage2 = False
             events.append((round(t, 1), "Stage 2 cleared: pole back on"))
         if not flat and soc <= 0.0:
             flat = True

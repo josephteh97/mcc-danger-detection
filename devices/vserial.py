@@ -9,6 +9,12 @@ import time
 import tty
 
 
+def _split_lines(buf):
+    """Complete lines in buf (CR or LF ends a line) and the unfinished rest."""
+    *lines, rest = buf.replace(b"\r", b"\n").split(b"\n")
+    return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()], rest
+
+
 class VirtualSerial:
     def __init__(self, link):
         self.master, self._slave = os.openpty()
@@ -33,8 +39,8 @@ class VirtualSerial:
             if not chunk:
                 break
             self._buf += chunk
-        *lines, self._buf = self._buf.replace(b"\r", b"\n").split(b"\n")
-        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
+        lines, self._buf = _split_lines(self._buf)
+        return lines
 
     def write_line(self, line):
         try:
@@ -102,8 +108,8 @@ class TcpPort:
                 self._drop()
                 break
             self._buf += chunk
-        *lines, self._buf = self._buf.replace(b"\r", b"\n").split(b"\n")
-        return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]
+        lines, self._buf = _split_lines(self._buf)
+        return lines
 
     def write_line(self, line):
         if self.client is None:
