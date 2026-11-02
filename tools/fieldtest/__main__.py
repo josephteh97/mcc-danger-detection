@@ -48,6 +48,15 @@ def _frame_at(path, index=0):
     raise ValueError(f"{path} has fewer than {index + 1} frames")
 
 
+def _lens_for(size, focal_equiv_mm):
+    """The lens calibrated at this size if there is one, else the nominal pinhole (and which)."""
+    from tools.fieldtest import lens as ln
+    lens = ln.load(REPORTS, size)
+    if lens is not None:
+        return lens, f"calibrated lens: fx {lens.fx:.1f} px ({os.path.basename(ln.calib_path(REPORTS, size))})"
+    return ln.FieldLens.pinhole(size, nominal_fp(size[0], focal_equiv_mm)), "nominal lens (not calibrated at this size)"
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="python3 -m tools.fieldtest", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -175,9 +184,10 @@ def main(argv=None):
         from tools.fieldtest import overlay as ov
         p = dict(phone["presets"][a.preset])
         size = a.size or tuple(p["frame_px"])
-        fp = nominal_fp(size[0], a.focal or p["focal_equiv_mm"])
+        lens, which = _lens_for(size, a.focal or p["focal_equiv_mm"])
         print(describe_pitch(phone, size[0], a.focal or p["focal_equiv_mm"]))
-        sheet = ov.layout(ov.zone(fp, size[0], size[1], a.rho or p["rho"]))
+        print("using the", which)
+        sheet = ov.layout(ov.zone(lens.fx, size[0], size[1], a.rho or p["rho"]))
         print(ov.describe_layout(sheet))
         out = os.path.join(report_dir(), f"layout_{a.preset}.json")
         with open(out, "w") as f:
@@ -185,12 +195,12 @@ def main(argv=None):
         print(f"saved {out}")
         return 0
 
-    if a.cmd == "zone" and not a.session:      # before the test: nominal lens, phone aimed at the centre
+    if a.cmd == "zone" and not a.session:      # before the test: phone aimed at the centre
         from tools.fieldtest import overlay as ov
-        from tools.fieldtest.lens import FieldLens
         p = dict(phone["presets"][a.preset])
         size = a.size or tuple(p["frame_px"])
-        lens = FieldLens.pinhole(size, nominal_fp(size[0], a.focal or p["focal_equiv_mm"]))
+        lens, which = _lens_for(size, a.focal or p["focal_equiv_mm"])
+        print("using the", which)
         z = ov.zone(lens.fx, size[0], size[1], a.rho or p["rho"])
         cam = ov.aimed(lens, z, a.height or p["height_m"])
         print(ov.describe_zone(z, ov.zone_box(cam, z), cam))
@@ -202,8 +212,7 @@ def main(argv=None):
 
     if a.cmd == "zone":
         from tools.fieldtest import overlay as ov
-        box_cam = cam if result["steps"]["pose"] is not None else ov.aimed(cam.lens, z, session.get("taped_height_m") or 1.5)
-        print(ov.describe_zone(z, result["box"], box_cam))
+        print(ov.describe_zone(z, result["box"], cam))
         return 0
 
     if a.cmd == "pose":
@@ -256,7 +265,7 @@ def main(argv=None):
         from tools.fieldtest import distortion as dz
         b = phone["checkerboard"]
         lens = cb.calibrate_images([cv2.imread(p) for p in sorted(glob.glob(a.images))], b["inner_corners"],
-                                   b["square_mm"] / 1000, b["min_views"])
+                                   b["square_mm"] / 1000, b["min_views"], model="wide")
         c = dz.compare(lens)
         print(f"{lens.views} views, reprojection {lens.rms:.3f} px")
         print(dz.describe(c))

@@ -4,7 +4,7 @@ What you do with the phone in a 1.8 × 2.5 m office corridor, from the stream to
 checks the coverage maths (ρ = (f/p)/z, the square S and its centre d) with a real lens. The
 detection sweep needs about 15 m and is not part of this test.
 
-Settings used: phone stream 1280 × 720 (16:9), preset `corridor` (ρ 360 px/m, phone at 0.45 m),
+Settings used: phone stream 1280 × 720 (16:9), preset `corridor` (ρ 380 px/m, phone at 0.45 m),
 A3 checkerboard with 10 × 7 squares (9 × 6 inner corners) of 36 mm.
 
 ## What you need
@@ -21,7 +21,12 @@ A3 checkerboard with 10 × 7 squares (9 × 6 inner corners) of 36 mm.
    and the login set. Press start. Keep the screen on and the app in front.
 2. The stream URL, login included, is in `fieldtest/phone.local.yaml` (git-ignored, never
    commit it). `fieldtest/phone.yaml` has only a placeholder.
-3. Check the stream:
+3. **This phone app serves one viewer, once.** When a viewer disconnects (`probe`, `record`,
+   `serve`, ffplay), the app stops serving until you press ▶ on the phone again. So: press ▶
+   before **every** command that reads the stream, and keep `serve` running for the whole test.
+   Skip `probe` once you know the stream works (`serve` prints the frame size too).
+
+4. Check the stream (only the first time; press ▶ again afterwards):
 
    ```bash
    python3 -m tools.fieldtest probe
@@ -30,13 +35,11 @@ A3 checkerboard with 10 × 7 squares (9 × 6 inner corners) of 36 mm.
    Expected: `1280 × 720 at … fps` and a WARNING that the frame is 16:9. The warning is normal
    here: it means the lens must be calibrated at this size before the overlay works.
 
-   If it says `cannot open` / `Connection refused`: the app isn't serving (start it again, screen
-   on), or another viewer (ffplay, VLC) holds the stream. Close them and try again. The app
-   restarts its server for a few seconds after a viewer leaves (for example right after `probe`),
-   so the tool tries five times, 2 s apart, before giving up; the page also reconnects by itself if
-   the stream drops during the test.
+   If it says `cannot open` / `Connection refused` (the tool tries five times, 2 s apart): the app
+   isn't serving. Press ▶ on the phone (screen on, app in front) and run the command again. Close
+   ffplay or VLC if they are open.
 
-4. Start the page and open it in the browser:
+5. Press ▶ on the phone, then start the page and open it in the browser:
 
    ```bash
    python3 -m tools.fieldtest serve --preset corridor
@@ -74,6 +77,8 @@ page starts.
 **Result** (shown in the panel on the right):
 
 - `lens: PASS` when the reprojection error is **0.5 px or less**.
+- The fit uses k1 and k2 only: the phone already corrects its main camera's distortion, and
+  freer models bend the picture corners the views don't pin down.
 - `f/p … (nominal 850.4, …%)`: the measured fx against the phone's published lens. A few percent
   off is normal.
 - The overlay switches on.
@@ -83,15 +88,15 @@ page starts.
 | Message or result | What to do |
 |---|---|
 | "N checkerboard views found; at least 12 are needed" | Capture more views. |
-| Reprojection over 0.5 px | Restart the page (the captured views are cleared) and capture again: board flatter, held stiller, more views in the corners. |
+| Reprojection over 0.5 px | Press **Clear views** and capture again: board flatter, held stiller, more views in the corners. |
 | fx far from 850 (more than about 10%) | Check `square_mm` is 36 in `fieldtest/phone.yaml`, that the app is at 720p and zoom 1×, then calibrate again. |
 
-The views are kept only while the page runs: restarting the page starts the count again. A saved
-calibration stays.
+A saved calibration stays, and so do the captured views (until **Clear views**).
 
 **Working alone: calibrate from a recording.** No need to hold the board and press Capture at once.
 
-1. Lean the board against a wall or chair, flat and still. Stop the page (Ctrl+C) if it runs.
+1. Lean the board against a wall or chair, flat and still. Stop the page (Ctrl+C) if it runs,
+   and press ▶ on the phone.
 2. Start a recording and move the **phone** slowly around the board for a minute, pausing a moment
    at each spot: board in the middle, in each corner of the picture, along the edges, tilted
    left, right, up and down, near (0.6 m) and far (1.5 m):
@@ -109,35 +114,46 @@ calibration stays.
    It prints the reprojection (PASS at 0.5 px or less) and fx against the nominal 850 px, and
    saves the same `calib_1280x720.json` the page loads. With fewer than 12 board views found,
    use `--every 5` or record again more slowly.
-4. Delete the recording afterwards if it shows people.
+4. Delete the recording afterwards if it shows people. Press ▶ on the phone again before `serve`.
 
 **Moving the phone after calibrating is fine:** the calibration describes the lens, not where the
 phone stands; the markers give the new position. Keep the same resolution (720p), zoom 1×, main
 camera, landscape the same way round and stabilisation off. If any of these changes, calibrate
 again.
 
+**Before the markers are clicked** the page draws the square for a phone at the taped height
+aimed at the square's centre, and says "pose not solved" on the picture. It only lands on the
+floor marks once the markers are clicked (step 4), so don't judge the calibration by it. The
+captured views are saved (`reports/fieldtest/views_1280x720.json`) and survive a page restart;
+**Clear views** starts a fresh set.
+
 ## 2. Mark the floor
 
 Use the tape measure, not the screen: the marks are the true positions, and the screen is
-what's being tested. Print the positions any time with
-`python3 -m tools.fieldtest zone --preset corridor`.
+what's being tested.
+
+**Mark the floor after calibrating**: the positions depend on the calibrated lens (its fx). Take
+them from the page's `layout:` line, or print them with
+`python3 -m tools.fieldtest zone --preset corridor` (it says "using the calibrated lens").
 
 1. Mark the **origin** (0, 0): the spot on the floor directly under the phone's lens, at one end
    of the corridor.
 2. Mark a straight line from it down the middle of the corridor: that's **y** (ahead). **x** is
    to the right, looking along the line.
-3. Mark these five points (metres):
+3. Mark the five points (metres). For example, with fx = 901 px (the first calibration of this
+   phone) and ρ 380:
 
    | Marker | x (right) | y (ahead) |
    |---|---|---|
-   | far left | −0.71 | 2.36 |
-   | far right | +0.71 | 2.36 |
-   | near right | +0.71 | 0.94 |
-   | near left | −0.71 | 0.94 |
-   | centre | 0 | 1.65 |
+   | far left | −0.70 | 2.37 |
+   | far right | +0.70 | 2.37 |
+   | near right | +0.70 | 0.98 |
+   | near left | −0.70 | 0.98 |
+   | centre | 0 | 1.68 |
 
-   The four corners make the square S = 1.42 m, from z_near 0.94 m to z_far 2.36 m, with its
-   centre at d = 1.65 m. Use small tape crosses and click their middle later.
+   The four corners make the square S = 1.39 m, from z_near 0.98 m to z_far 2.37 m, with its
+   centre at d = 1.68 m. Use the numbers the tool prints for your calibration if they differ. Use
+   small tape crosses and click their middle later.
 
 ## 3. Set up the phone
 

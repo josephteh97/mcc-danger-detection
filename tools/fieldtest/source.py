@@ -60,7 +60,8 @@ class Source:
             if self.cap.isOpened():
                 break
         else:
-            hint = (": is the phone app serving, with the screen on? Close other viewers (ffplay, VLC) first"
+            hint = (": is the phone app serving, with the screen on? An app that stops after each viewer "
+                    "needs ▶ pressed again; close other viewers (ffplay, VLC)"
                     if is_stream(url) else "")
             raise OSError(f"cannot open {self.shown}{hint}")
         self.size, self.warnings, self.frames = None, [], 0

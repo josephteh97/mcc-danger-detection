@@ -3,6 +3,7 @@ clicked through its API, replayed from the saved session; the sweep, report and 
 import json
 import os
 
+import numpy as np
 import pytest
 from fakes import fieldtest_synth as syn
 from fastapi.testclient import TestClient
@@ -29,6 +30,7 @@ def reports(tmp_path, monkeypatch):
     monkeypatch.setattr(web, "report_dir", lambda date=None: str(tmp_path))
     import tools.fieldtest.__main__ as cli
     monkeypatch.setattr(cli, "report_dir", lambda date=None: str(tmp_path))
+    monkeypatch.setattr(cli, "REPORTS", str(tmp_path))
     return tmp_path
 
 
@@ -136,15 +138,16 @@ def test_tilted_overlay_drifts_from_plan_view():
     assert result["steps"]["pose"] is None and result["steps"]["lens"] is None
 
 
-def test_zone_box_corridor(capsys):
+def test_zone_box_corridor(reports, capsys):
     """The corridor preset fits 1.8 × 2.5 m; the aimed phone puts the centre mid-frame and the far
     corners S/2 · f/p / z_far either side of it; `zone` prints S, d, z_near, z_far and the box."""
     assert main(["zone", "--preset", "corridor"]) == 0
     out = capsys.readouterr().out
-    assert "S 1.42 m, d 1.65 m, z_near 0.94 m, z_far 2.36 m" in out and "inside the frame" in out
+    assert "S 1.34 m, d 1.57 m, z_near 0.89 m, z_far 2.24 m" in out and "nominal lens" in out and "inside the frame" in out
     lens = ss.lens_of(ss.new((1280, 720), preset="corridor"))
-    z = ov.zone(lens.fx, 1280, 720, 360)
+    z = ov.zone(lens.fx, 1280, 720, 380)
     assert z["s"] <= 1.8 and z["z_max"] <= 2.5
+    assert ov.zone(901.3, 1280, 720, 380)["z_max"] <= 2.4      # still fits with the phone's calibrated fx
     cam = ov.aimed(lens, z, 0.45)
     u, v = cam.image_points([[0.0, z["d"], 0.0]])[0][0]
     assert abs(u - 640) < 0.01 and abs(v - 360) < 0.01
@@ -166,5 +169,28 @@ def test_local_file_keeps_the_login_out_of_the_repo(tmp_path):
     local = tmp_path / "phone.local.yaml"
     local.write_text("stream_url: rtsp://me:secret@10.0.0.2:1945/\n")
     phone = ft.load_phone(local=str(local))
-    assert phone["stream_url"] == "rtsp://me:secret@10.0.0.2:1945/" and phone["presets"]["corridor"]["rho"] == 360
+    assert phone["stream_url"] == "rtsp://me:secret@10.0.0.2:1945/" and phone["presets"]["corridor"]["rho"] == 380
     assert "secret" not in open(ft.PHONE_FILE).read()
+
+
+def test_saved_calibration_drives_layout_and_views_survive(reports, capsys):
+    """layout/zone use the lens calibrated at that size; captured views are kept on disk."""
+    from tools.fieldtest import calib as cb
+    from tools.fieldtest import lens as ln
+    ln.save(ln.FieldLens((1280, 720), 901.3, 900.7, 640, 360, rms=0.25, views=20, source="checkerboard"), str(reports))
+    assert main(["zone", "--preset", "corridor"]) == 0
+    out = capsys.readouterr().out
+    assert "calibrated lens: fx 901.3" in out and "z_far 2.37 m" in out
+    views = [np.full((54, 1, 2), i, np.float32) for i in range(3)]
+    cb.save_views(views, str(reports), (1280, 720))
+    assert len(cb.load_views(str(reports), (1280, 720))) == 3
+
+
+def test_main_camera_fit_keeps_k3_and_tangential_at_zero():
+    from tools.fieldtest.calib import calibrate, find_corners
+    from tools.fieldtest.lens import FieldLens
+    true = FieldLens.pinhole((1440, 1080), syn.FP)
+    rng = np.random.default_rng(5)
+    corners = [find_corners(syn.render_board(true, r, t), (9, 6)) for r, t in syn.board_poses(15, rng)]
+    lens = calibrate(corners, (9, 6), 0.025, (1440, 1080))
+    assert lens.dist[2] == lens.dist[3] == lens.dist[4] == 0.0 and abs(lens.fx - syn.FP) / syn.FP < 0.005

@@ -137,7 +137,7 @@ def p10():
 def p11():
     true = syn.wide_lens()
     views = syn.wide_board_views(true, np.random.default_rng(11))
-    cal = calibrate(views, (9, 6), 0.1, true.size, min_views=12)
+    cal = calibrate(views, (9, 6), 0.1, true.size, min_views=12, model="wide")
     _, _, d_true = dz.model(true)
     c = dz.compare(cal)
     g_true = dz.g_calibrated(true, dz.edge_tangent(true))

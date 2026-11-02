@@ -14,7 +14,7 @@ from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
 from tools.fieldtest import pose as ps
 from tools.fieldtest.calib import against_nominal
-from tools.fieldtest.lens import FieldCamera, FieldLens
+from tools.fieldtest.lens import FieldLens
 
 
 def new(size, source="", preset="default", phone=None, **settings):
@@ -46,12 +46,17 @@ def lens_of(session):
     return FieldLens.pinhole(size, nominal_fp(size[0], session["focal_equiv_mm"]))
 
 
+def zone_of(session, lens):
+    return ov.zone(lens.fx, lens.size[0], lens.size[1], session["rho"])
+
+
 def camera_of(session, lens=None):
-    """The solved camera, or a level camera at the taped height until the cones are clicked."""
+    """The solved camera, or until the cones are clicked the camera the layout assumes: at the
+    taped height over the origin, aimed at the square's centre."""
     lens = lens or lens_of(session)
     if len(session["cones"]) >= 4:
         return ps.solve([(c["x"], c["y"]) for c in session["cones"]], [(c["u"], c["v"]) for c in session["cones"]], lens)
-    return {"camera": FieldCamera.posed(lens, session.get("taped_height_m") or 1.5), "solved": False}
+    return {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
 
 
 def evaluate(session):
@@ -70,12 +75,11 @@ def evaluate(session):
         out["steps"]["pose"] = ok
     else:
         out["steps"]["pose"] = None
-    z = ov.zone(lens.fx, lens.size[0], lens.size[1], session["rho"])
+    z = zone_of(session, lens)
     out["zone"] = {k: round(float(v), 4) for k, v in z.items()}
     out["layout"] = ov.layout(z)
     out["corners"] = ov.corner_table(cam, z)
-    box_cam = cam if pose.get("solved", True) else ov.aimed(lens, z, session.get("taped_height_m") or 1.5)
-    out["box"] = ov.zone_box(box_cam, z)
+    out["box"] = ov.zone_box(cam, z)
     out["overlay"] = overlay_check(session, cam, z, band["overlay_pct_of_width"])
     out["steps"]["overlay"] = out["overlay"]["ok"]
     out["measurements"] = [ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),

@@ -21,6 +21,8 @@ def _verdict(v):
 def annotate(frame, session, cam, z):
     """The overlay plus the cone and measurement clicks."""
     img = ov.draw(frame, cam, z)
+    if len(session["cones"]) < 4:
+        ov._label(img, (2, 60), "pose not solved: square drawn for the phone aimed at d. Click 4+ markers", (0, 220, 255))
     for c in session["cones"]:
         cv2.circle(img, (int(c["u"]), int(c["v"])), 7, (0, 140, 255), 2, cv2.LINE_AA)
         ov._label(img, (c["u"], c["v"] + 18), c.get("name") or f"({c['x']:g}, {c['y']:g})", (0, 140, 255))

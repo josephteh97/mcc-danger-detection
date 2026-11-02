@@ -39,7 +39,8 @@ class Live:
         lens = ln.load(REPORTS, self.src.size)
         if lens:
             self.session["lens"] = lens.to_dict()
-        self.overlay, self.views, self.writer, self.rec_path = True, [], None, None
+        self.overlay, self.writer, self.rec_path = True, None, None
+        self.views = cb.load_views(REPORTS, self.src.size)      # kept across restarts; "Clear views" empties
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
@@ -153,6 +154,13 @@ def make_app(live):
         if corners is None:
             raise HTTPException(400, "no checkerboard in this frame")
         live.views.append(corners)
+        cb.save_views(live.views, REPORTS, live.src.size)
+        return live.state()
+
+    @app.post("/api/calib/clear")
+    def clear_views():
+        live.views = []
+        cb.save_views(live.views, REPORTS, live.src.size)
         return live.state()
 
     @app.post("/api/calib/solve")
@@ -233,6 +241,7 @@ name <select id="cname"><option></option><option>far left</option><option>far ri
 <fieldset><legend>Steps</legend>
 <button onclick="post('/api/calib/capture')">Capture checkerboard</button>
 <button onclick="post('/api/calib/solve')">Calibrate</button>
+<button class="off" onclick="confirm('Clear the captured checkerboard views?')&&post('/api/calib/clear')">Clear views</button>
 <button onclick="post('/api/sensors')">Read sensors</button>
 <button id="rec" onclick="record()">Record</button>
 <button onclick="post('/api/report').then(r=>r&&alert('Report: '+r.report))">Write report</button></fieldset>
