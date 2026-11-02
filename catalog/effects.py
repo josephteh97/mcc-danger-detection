@@ -127,7 +127,7 @@ def battery_low_pct(site, sun_factor, days=3):
 # --------------------------------------------------------------------------- v11 plan totals
 
 def plan_parts(plan_products):
-    """A plan's own products (battery, panels, then its parts) from site["plan_products"][plan]."""
+    """A plan's own products (battery, panels, then its parts) from catalog.plan_products(site, plan)."""
     return [p for p in (plan_products["battery"], plan_products["solar"]) if p] + plan_products["parts"]
 
 
@@ -135,9 +135,9 @@ def plan_totals(site, include_legacy=False):
     """Cost of the v11 pole per power plan: the common parts, plus each plan's battery, panels and
     own parts, the laser controller and other hardware. Legacy products are left out unless
     `include_legacy` (identification switched back on). -> {plan: {"total_sgd", "items"}}"""
-    from catalog import fitted_products
+    from catalog import fitted_products, plan_products
     plans = site.get("power_plans") or {}
-    plan_ids = {p["id"] for pp in site["plan_products"].values() for p in plan_parts(pp)}
+    plan_ids = {p["id"] for pp in plan_products(site).values() for p in plan_parts(pp)}
     plan_ids |= {site["fitted"]["battery"]["id"], site["fitted"]["solar"]["id"]}
     common = [(p["id"], p["price_sgd"]) for p in fitted_products(site)
               if p["id"] not in plan_ids and (include_legacy or not p.get("legacy"))]
@@ -147,7 +147,7 @@ def plan_totals(site, include_legacy=False):
     other = site.get("power", {}).get("other_hardware_sgd", 0)
     out = {}
     for name, plan in plans.items():
-        items = list(common) + [(p["id"], p["price_sgd"]) for p in plan_parts(site["plan_products"][name])]
+        items = list(common) + [(p["id"], p["price_sgd"]) for p in plan_parts(plan_products(site, name))]
         if plan.get("other_sgd"):
             items.append(("plan extras", plan["other_sgd"]))
         items.append(("other hardware", other))

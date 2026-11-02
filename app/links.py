@@ -43,12 +43,15 @@ def beam_ground_point(arm_xy, heading_deg, pivot_h_m, pan, tilt):
 class _Line:
     """A newline-delimited text line on a byte stream that may go away and come back. It reopens
     at most once every `reopen_s` and bumps `generation` so callers can resend state. Subclasses
-    supply `connected`, `_open`, `_drop`, `_read` and `_write`."""
+    supply `connected`, `_open`, `_drop`, `_read` and `_write` (returns the bytes taken).
+    Lines the device can't take yet wait in `_out` and go on the next send or read, whole: a full
+    buffer never splits a command, and a reconnect starts with an empty `_out`."""
     EOF_REASON = "end of file"
+    OUT_MAX = 64 * 1024
 
     def __init__(self, path, reopen_s=1.0):
         self.path, self.reopen_s = path, reopen_s
-        self.generation, self._buf, self._next_try = 0, b"", 0.0
+        self.generation, self._buf, self._out, self._next_try = 0, b"", b"", 0.0
 
     def _ready(self):
         if not self.connected:
@@ -58,17 +61,28 @@ class _Line:
     def send(self, line):
         if not self._ready():
             return False
-        try:
-            self._write((line.strip() + "\n").encode())
-            return True
-        except BlockingIOError:
+        data = (line.strip() + "\n").encode()
+        if len(self._out) + len(data) > self.OUT_MAX:
             return False
-        except OSError as e:
-            self._drop(e)
-            return False
+        self._out += data
+        return self._flush()
+
+    def _flush(self):
+        while self._out:
+            try:
+                n = self._write(self._out)
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError as e:
+                self._drop(e)
+                return False
+            if not n:
+                break
+            self._out = self._out[n:]
+        return True
 
     def readlines(self):
-        if not self._ready():
+        if not self._ready() or not self._flush():
             return []
         while True:
             try:
@@ -123,7 +137,7 @@ class SerialLine(_Line):
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
         except Exception:      # not a tty (e.g. a FIFO in tests)
             pass
-        self.fd, self._buf = fd, b""
+        self.fd, self._buf, self._out = fd, b"", b""
         self.generation += 1
         log.info("serial %s connected", self.path)
 
@@ -140,7 +154,7 @@ class SerialLine(_Line):
         return os.read(self.fd, 4096)
 
     def _write(self, data):
-        os.write(self.fd, data)
+        return os.write(self.fd, data)
 
 
 class TcpLine(_Line):
@@ -173,7 +187,7 @@ class TcpLine(_Line):
                     if time.monotonic() > self._next_try:
                         self._drop("connect timed out")
                     return
-                self._connecting, self._buf = False, b""
+                self._connecting, self._buf, self._out = False, b"", b""
                 self.generation += 1
                 log.info("tcp %s connected", self.path)
             else:
@@ -210,7 +224,7 @@ class TcpLine(_Line):
         return self.sock.recv(4096)
 
     def _write(self, data):
-        self.sock.sendall(data)
+        return self.sock.send(data)
 
 
 def make_line(spec):

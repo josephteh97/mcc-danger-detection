@@ -1,11 +1,13 @@
 """The v11 laser controller's Ethernet links: the relay and arm emulators on TCP, the app's
 TcpLine, and reconnection after the controller restarts (no Docker needed)."""
+import os
 import socket
 import time
 
+import pytest
 from smoke_links import Emulator, drive
 
-from app.links import ArmLink, Relays, TcpLine, make_line
+from app.links import ArmLink, Relays, SerialLine, TcpLine, make_line
 
 
 def free_addr():
@@ -59,3 +61,64 @@ def test_arm_over_ethernet():
             assert drive(arm, 3.0, ("AIM 10 20", "LASER 1", "HB")), "no POS report over TCP"
         finally:
             arm.line.close()
+
+
+def _pty_pair():
+    master, slave = os.openpty()
+    line = SerialLine(os.ttyname(slave))
+    os.close(slave)
+    os.set_blocking(master, False)
+
+    def read():
+        try:
+            return os.read(master, 65536)
+        except BlockingIOError:
+            return b""
+    return line, read, lambda: os.close(master)
+
+
+def _tcp_pair():
+    srv = socket.create_server(("127.0.0.1", 0))
+    line = TcpLine(f"127.0.0.1:{srv.getsockname()[1]}")
+    peer, _ = srv.accept()
+    srv.close()
+    peer.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    end = time.monotonic() + 2.0
+    while not line.connected and time.monotonic() < end:
+        line.readlines()
+        time.sleep(0.01)
+    line.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    peer.setblocking(False)
+
+    def read():
+        try:
+            return peer.recv(65536)
+        except BlockingIOError:
+            return b""
+    return line, read, peer.close
+
+
+@pytest.mark.parametrize("pair", [_pty_pair, _tcp_pair], ids=["serial", "tcp"])
+def test_full_buffer_keeps_lines_whole(pair):
+    """Commands sent while the far end isn't reading wait whole and go out in order: none is split
+    or glued onto the next, and a command the link refuses is refused whole."""
+    line, read, close = pair()
+    try:
+        sent, queued = [], False
+        for i in range(20000):
+            cmd = f"AIM {i} {'0' * 40}"
+            if not line.send(cmd):
+                break
+            sent.append(cmd)
+            queued |= bool(line._out)
+        assert queued, "the device took everything; the test never filled its buffer"
+        got, buf, end = [], b"", time.monotonic() + 10.0
+        while len(got) < len(sent) and time.monotonic() < end:
+            line.readlines()                           # sends what is waiting
+            buf += read()
+            *lines, buf = buf.split(b"\n")
+            got += [ln.decode() for ln in lines]
+        assert got == sent
+    finally:
+        line.close()
+        close()

@@ -167,8 +167,9 @@ class V11PowerConfig(_SolarDay):
 
     @classmethod
     def from_site(cls, site, plan="B", socket_mode=None, **overrides):
-        """The plan's products come from site["plan_products"] (resolved once by catalog.load_site)."""
-        prods = site["plan_products"][plan]
+        """The plan's products come from catalog.plan_products (resolved once per site)."""
+        from catalog import plan_products
+        prods = plan_products(site, plan)
         pw = site.get("power", {})
         bat = prods["battery"]
         parts = prods["parts"] if site["power_plans"][plan].get("socket") else []   # fed by the site socket

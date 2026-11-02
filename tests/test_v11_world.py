@@ -82,3 +82,10 @@ def test_squat_far_edge_scenario_fires_alarm():
         kinds += [k for k, _ in fsm.update(t, dist)]
     assert heights and min(heights) >= 100, f"squatting worker only {min(heights):.0f} px in the processed image"
     assert "alarm" in kinds, kinds
+
+
+def test_ir_night_follows_the_fitted_camera():
+    """The v11 camera renders IR monochrome at night; a camera swapped in for a comparison keeps
+    its own night mode, whatever site it is on."""
+    assert World(SITE).ir_night
+    assert not World(catalog.load_site(profile="v11", overrides={"camera": "bullet_8mp_4mm_generic"})).ir_night

@@ -61,7 +61,7 @@ def _value(site, key):
 def fields(profile="v11"):
     """Everything the panel can edit, with today's values."""
     site = catalog.load_site(profile=profile)
-    plan_parts = [p for pp in site["plan_products"].values() for p in fx.plan_parts(pp)]
+    plan_parts = [p for pp in catalog.plan_products(site).values() for p in fx.plan_parts(pp)]
     products = {}
     for p in catalog.fitted_products(site) + plan_parts:
         products.setdefault(p["id"], {

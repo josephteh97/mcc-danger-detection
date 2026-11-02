@@ -1,6 +1,13 @@
 """The dashboard's v11 what-if panel and HUD numbers (dashboard/v11.py), without the stack."""
+import os
+
+import pytest
+import yaml
+
 import catalog
 from dashboard import v11
+from tools import coverage
+from world.world import World
 
 NAMES = {"PoE budget", "Warning ring density", "Stand pose", "Laser reach", "4G data",
          "Plan A battery", "Plan B battery", "Plan C battery"}
@@ -54,3 +61,16 @@ def test_hud_and_heatmap():
     c = v11.coverage(site, step=1.0)
     assert c["nx"] * c["ny"] == sum(len(row) for row in c["ppm"])
     assert {p["band"] for p in c["corners"]} == {"green"}         # every ring corner >= 100 px/m with tiles
+
+
+def test_bad_plan_product_fails_only_the_power_callers(tmp_path):
+    """A misspelt product in a power plan stops the plan maths, not the world or the coverage."""
+    with open(os.path.join(catalog.SITES_DIR, "v11.yaml")) as f:
+        site = yaml.safe_load(f)
+    site["power_plans"]["B"]["battery"] = "lifepo4_24v_999ah"
+    path = tmp_path / "v11.yaml"
+    path.write_text(yaml.safe_dump(site))
+    loaded = catalog.load_site(path=str(path))
+    assert coverage.report(loaded) and World(loaded).render()[0].shape == (1200, 1600, 3)
+    with pytest.raises(catalog.CatalogError, match="lifepo4_24v_999ah"):
+        catalog.plan_products(loaded)

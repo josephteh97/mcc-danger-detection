@@ -65,7 +65,7 @@ class World:
         self.cam = PinholeCamera.from_site(site)
         self.W, self.H = self.cam.width, self.cam.height
         self.lens = Lens.from_site(self.cam, site["fitted"]["camera"])   # v11: render through the real lens
-        self.ir_night = site["camera"].get("render", {}).get("ir_night", False)   # IR monochrome at night
+        self.ir_night = self.lens is not None          # the v11 IR camera: monochrome at night
         self._native_fp, _, self._native_d = fx.lens(site["fitted"]["camera"])
         self.arm_cfg = site["arm"]
         self.arm = (0.0, 90.0, False)          # pan, tilt, laser on: fed from the arm state

@@ -124,8 +124,8 @@ def app_config_path(profile=None):
 
 
 def load_site(path=None, overrides=None, profile=None, product_overrides=None):
-    """Load a site profile and resolve the fitted products (and each power plan's products, as
-    site["plan_products"]). `profile` picks sites/<profile>.yaml; without it, `path` (a site file or
+    """Load a site profile and resolve the fitted products (each power plan's products resolve
+    later, in plan_products()). `profile` picks sites/<profile>.yaml; without it, `path` (a site file or
     the site.yaml selector) or the active profile is used. `overrides` swaps products by category,
     e.g. {"camera": "dome_4mp_2_8mm_generic"}; `product_overrides` changes fields of products by id,
     e.g. {"lifepo4_24v_50ah": {"capacity_ah": 100}} (what-if numbers; files untouched)."""
@@ -149,19 +149,28 @@ def load_site(path=None, overrides=None, profile=None, product_overrides=None):
     unknown = [c for c in fitted_names if c not in CATEGORIES]
     if unknown:
         raise CatalogError(f"{path}: products: unknown category {', '.join(unknown)}")
-    edits = product_overrides or {}
-
-    def product(category, name):
-        return load_product(category, name, edits.get(name))
-    site["fitted"] = {c: [product(c, n) for n in names] if isinstance(names, list) else product(c, names)
+    edits = site["product_overrides"] = product_overrides or {}
+    site["fitted"] = {c: [load_product(c, n, edits.get(n)) for n in names] if isinstance(names, list)
+                      else load_product(c, names, edits.get(names))
                       for c, names in fitted_names.items()}
-    site["plan_products"] = {
-        name: {"battery": product("battery", p["battery"]) if p.get("battery") else None,
-               "solar": product("solar", p["solar"]) if p.get("solar") else None,
-               "parts": [product("power_conv", n) for n in p.get("parts", [])]}
-        for name, p in (site.get("power_plans") or {}).items()}
     check_laser_fit(site["fitted"]["laser"])
     return site
+
+
+def plan_products(site, plan=None):
+    """Each power plan's products, {plan: {"battery", "solar", "parts"}}, or one plan's. Resolved on
+    first use and kept on the site, so a bad name in a plan fails only the power callers."""
+    if "_plan_products" not in site:
+        edits = site.get("product_overrides") or {}
+
+        def product(category, name):
+            return load_product(category, name, edits.get(name)) if name else None
+        site["_plan_products"] = {
+            name: {"battery": product("battery", p.get("battery")), "solar": product("solar", p.get("solar")),
+                   "parts": [product("power_conv", n) for n in p.get("parts", [])]}
+            for name, p in (site.get("power_plans") or {}).items()}
+    plans = site["_plan_products"]
+    return plans if plan is None else plans[plan]
 
 
 def fitted(site, category):
