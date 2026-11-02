@@ -48,11 +48,17 @@ class Live:
         while not self.stop:
             t0 = time.monotonic()
             frame, _ = self.src.read()
-            if frame is None:
-                if not self.loop:
+            if frame is None:                    # a recording loops; a dropped stream reconnects
+                if not (self.loop or src.is_stream(self.url)):
                     break
                 self.src.close()
-                self.src = src.Source(self.url)
+                try:
+                    new = src.Source(self.url)
+                    new.size = self.src.size             # the page keeps its size; a change is still warned
+                    self.src = new
+                except OSError as e:
+                    log.warning("%s; trying again", e)
+                    time.sleep(2.0)
                 continue
             with self.lock:
                 self.frame = frame

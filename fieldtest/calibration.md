@@ -31,7 +31,10 @@ A3 checkerboard with 10 × 7 squares (9 × 6 inner corners) of 36 mm.
    here: it means the lens must be calibrated at this size before the overlay works.
 
    If it says `cannot open` / `Connection refused`: the app isn't serving (start it again, screen
-   on), or another viewer (ffplay, VLC) holds the stream. Close them and try again.
+   on), or another viewer (ffplay, VLC) holds the stream. Close them and try again. The app
+   restarts its server for a few seconds after a viewer leaves (for example right after `probe`),
+   so the tool tries five times, 2 s apart, before giving up; the page also reconnects by itself if
+   the stream drops during the test.
 
 4. Start the page and open it in the browser:
 
@@ -85,6 +88,33 @@ page starts.
 
 The views are kept only while the page runs: restarting the page starts the count again. A saved
 calibration stays.
+
+**Working alone: calibrate from a recording.** No need to hold the board and press Capture at once.
+
+1. Lean the board against a wall or chair, flat and still. Stop the page (Ctrl+C) if it runs.
+2. Start a recording and move the **phone** slowly around the board for a minute, pausing a moment
+   at each spot: board in the middle, in each corner of the picture, along the edges, tilted
+   left, right, up and down, near (0.6 m) and far (1.5 m):
+
+   ```bash
+   python3 -m tools.fieldtest record --seconds 60
+   ```
+
+3. Calibrate from it (every 10th frame; blurred frames without the board are skipped):
+
+   ```bash
+   python3 -m tools.fieldtest calibrate --file reports/fieldtest/<date>/rec_<time>.mp4 --every 10
+   ```
+
+   It prints the reprojection (PASS at 0.5 px or less) and fx against the nominal 850 px, and
+   saves the same `calib_1280x720.json` the page loads. With fewer than 12 board views found,
+   use `--every 5` or record again more slowly.
+4. Delete the recording afterwards if it shows people.
+
+**Moving the phone after calibrating is fine:** the calibration describes the lens, not where the
+phone stands; the markers give the new position. Keep the same resolution (720p), zoom 1×, main
+camera, landscape the same way round and stabilisation off. If any of these changes, calibrate
+again.
 
 ## 2. Mark the floor
 

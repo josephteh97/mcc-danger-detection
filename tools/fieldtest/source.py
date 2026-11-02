@@ -19,6 +19,11 @@ def hide_password(url):
     return re.sub(r"(//[^/:@]+:)[^@/]*@", r"\1***@", str(url))
 
 
+def is_stream(url):
+    """A network stream (rtsp://, http://), not a recording on disk."""
+    return "://" in str(url) and not os.path.exists(str(url))
+
+
 def is_4_3(w, h):
     return abs(w * 3 - h * 4) <= 0.01 * max(w, h)
 
@@ -41,13 +46,23 @@ class Source:
     """Frames from a stream URL or a recording file. `size` is the size received; a change of size
     during a session is logged in `warnings`."""
 
-    def __init__(self, url):
+    def __init__(self, url, tries=5, wait_s=2.0):
         self.url, self.shown = url, hide_password(url)
         if str(url).startswith("rtsp://"):          # RTSP over TCP, as app/health.py: UDP is lossy on Wi-Fi
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-        self.cap = cv2.VideoCapture(url)
-        if not self.cap.isOpened():
-            raise OSError(f"cannot open {self.shown}")
+        # A phone app restarts its server for a few seconds after a viewer leaves: retry a stream
+        # (not a file) before giving up.
+        for attempt in range(tries if is_stream(url) else 1):
+            if attempt:
+                log.warning("cannot open %s, trying again (%d of %d)", self.shown, attempt + 1, tries)
+                time.sleep(wait_s)
+            self.cap = cv2.VideoCapture(url)
+            if self.cap.isOpened():
+                break
+        else:
+            hint = (": is the phone app serving, with the screen on? Close other viewers (ffplay, VLC) first"
+                    if is_stream(url) else "")
+            raise OSError(f"cannot open {self.shown}{hint}")
         self.size, self.warnings, self.frames = None, [], 0
         self.file_fps = self.cap.get(cv2.CAP_PROP_FPS) or 0.0
         self.t0 = time.monotonic()
