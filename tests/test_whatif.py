@@ -74,3 +74,31 @@ def test_bad_plan_product_fails_only_the_power_callers(tmp_path):
     assert coverage.report(loaded) and World(loaded).render()[0].shape == (1200, 1600, 3)
     with pytest.raises(catalog.CatalogError, match="lifepo4_24v_999ah"):
         catalog.plan_products(loaded)
+
+
+@pytest.mark.parametrize("settings", [{"cable_eff": 0}, {"density_px_per_m": "0"}, {"days": 0},
+                                      {"stand_distance_m": -1}, {"clip_mb": "lots"}, {"sun_factor": "nan"}])
+def test_bad_settings_are_refused_by_name(settings):
+    """Zero, negative, non-numeric and NaN values give a clear error (a 400), not a crash."""
+    key = next(iter(settings))
+    with pytest.raises(ValueError, match=v11.SITE_FIELDS[key][0]):
+        v11.whatif(settings=settings)
+
+
+def test_bad_product_value_is_refused():
+    with pytest.raises(ValueError, match="stepup_24_54v efficiency"):
+        v11.whatif(products={"stepup_24_54v": {"efficiency": 0}})
+
+
+@pytest.mark.parametrize("text, tiles", [("0", False), ("false", False), ("1", True), (1, True), (0, False)])
+def test_tiles_from_text_or_number(text, tiles):
+    assert v11._flag(text) is tiles
+
+
+def test_site_without_tilt_or_tiles(monkeypatch):
+    """Optional site settings fall back: the tilt that aims the camera at look_at, tiles off."""
+    site = catalog.load_site(profile="v11")
+    del site["camera"]["tilt_deg"], site["detector"]["tiles"]
+    monkeypatch.setattr(catalog, "load_site", lambda **kw: site)
+    f = v11.fields()["site"]
+    assert f["tiles"]["value"] == 0 and 20 < f["tilt_deg"]["value"] < 25    # atan(3.8 / 9.5) = 21.8°

@@ -3,6 +3,7 @@ import os
 import statistics
 import tempfile
 
+import numpy as np
 import yaml
 from _check import check, main
 
@@ -66,8 +67,7 @@ def v24():
     drops = {}
     for cam in (bullet, dome):
         w = World(fx.with_product(SITE, "camera", cam["id"]), weather="tropical_downpour")
-        mask = w._cached(("drops", downpour.name, cam["id"]), lambda: wx.make_drop_mask(
-            w.H, w.W, wx.drop_coverage(downpour, cam), __import__("numpy").random.default_rng(w.seed + 2)))
+        mask = wx.make_drop_mask(w.H, w.W, wx.drop_coverage(downpour, cam), np.random.default_rng(w.seed + 2))
         drops[cam["id"]] = 100.0 * float((mask > 0.5).mean())
     ppm_b = fx.pixels_per_metre(fx.with_product(SITE, "camera", bullet["id"]))[0]
     ppm_d = fx.pixels_per_metre(fx.with_product(SITE, "camera", dome["id"]))[0]

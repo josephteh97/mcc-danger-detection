@@ -53,15 +53,20 @@ def port_table(site, include_legacy=None, extra=None):
     rows = []
     for port in sorted(ports):
         e, name, prod = ports[port]
-        row = {"port": port, "device": name or "spare", "class": None, "reserved_w": 0.0, "draw_typ_w": 0.0,
+        row = {"port": port, "device": name or "spare", "role": e.get("device"), "class": None, "reserved_w": 0.0, "draw_typ_w": 0.0,
                "draw_max_w": 0.0, "data_only": bool(e.get("data_only"))}
         if prod is None or e.get("data_only") or (prod.get("legacy") and not include_legacy):
             rows.append(row)
             continue
         loss = eff["cable"] * (eff["splitter"] if e.get("via") else 1.0)
         cls = int(e.get("poe_class", prod.get("poe_class", 0)))
+        if cls not in CLASS_W:
+            raise ValueError(f"port {port} ({name}): PoE class {cls} is not one of 0-8")
+        typ = prod.get("watts_typ", prod.get("power_w"))
+        if typ is None:
+            raise ValueError(f"port {port} ({name}): the product gives no watts_typ or power_w")
         row.update({"class": cls, "reserved_w": CLASS_W[cls],
-                    "draw_typ_w": prod["watts_typ"] / loss, "draw_max_w": prod["watts_max"] / loss})
+                    "draw_typ_w": typ / loss, "draw_max_w": prod.get("watts_max", typ) / loss})
         rows.append(row)
     return rows
 

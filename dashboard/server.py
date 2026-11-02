@@ -258,7 +258,8 @@ async def hud():
         return {"profile": SITE["profile"]}
     out = await once("hud", v11.hud_static, SITE)
     est, day = out["data"]["month_estimate_gb"], time.localtime().tm_mday
-    return {"profile": "v11", **out, "data": {**out["data"], "month_to_date_gb": round(est * day / 30, 1)},
+    return {"profile": "v11", **out, "data": {**out["data"], "month_estimate_gb": round(est, 1),
+                                              "month_to_date_gb": round(est * day / 30, 1)},
             "power_cut": faults.power_cut_plan}
 
 
@@ -266,7 +267,8 @@ async def hud():
 async def whatif_fields():
     """The numbers the what-if panel can change (products and site settings) and today's results."""
     from dashboard import v11
-    return {**await once("fields", v11.fields), "result": await once("whatif", v11.whatif)}
+    fields, result = await asyncio.gather(asyncio.to_thread(v11.fields), asyncio.to_thread(v11.whatif))
+    return {**fields, "result": result}          # not cached: the same catalogue reading as a recalculation
 
 
 @app.post("/api/v11/whatif")
@@ -276,7 +278,7 @@ async def whatif(body: dict):
     from dashboard import v11
     try:
         return await asyncio.to_thread(v11.whatif, body.get("products"), body.get("settings"))
-    except (catalog.CatalogError, ValueError, TypeError, KeyError) as e:
+    except (catalog.CatalogError, ValueError, TypeError, KeyError, ZeroDivisionError) as e:
         raise HTTPException(400, f"{e.__class__.__name__}: {e}")
 
 

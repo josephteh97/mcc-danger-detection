@@ -89,3 +89,14 @@ def test_ir_night_follows_the_fitted_camera():
     its own night mode, whatever site it is on."""
     assert World(SITE).ir_night
     assert not World(catalog.load_site(profile="v11", overrides={"camera": "bullet_8mp_4mm_generic"})).ir_night
+
+
+@pytest.mark.parametrize("preset", ["night_clear", "night_no_floodlight"])
+def test_ir_night_worker_lit_like_the_ground(world, preset):
+    """At night the IR camera sees a worker about as bright as the ground at their feet."""
+    from world import weather as wx
+    p = wx.get_preset(preset)
+    worker = type("Worker", (), {"x": 4.0, "y": 3.5})()
+    uv = world.lens.distort(world.cam.project([[worker.x, worker.y, 0.0]])[0])[0]
+    ground = float(world._light_map(p)[int(uv[1]), int(uv[0])]) * p.light
+    assert world._worker_light(worker, p) == pytest.approx(ground, rel=0.1)

@@ -35,12 +35,15 @@ class _SolarDay:
         return in_window(hour, self.flood_hours)
 
     def solar_w(self, hour, sun_factor):
+        """Watts from the panels in the whole hour `hour`, on a sine over the daylight window (whose
+        ends may be fractional hours)."""
         a, b = self.daylight
-        if not a <= hour < b:
+        hour = int(hour)
+        if not self.panel_w or not a <= hour < b:
             return 0.0
-        weights = [math.sin(math.pi * (h + 0.5 - a) / (b - a)) for h in range(a, b)]
+        weights = {h: math.sin(math.pi * (h + 0.5 - a) / (b - a)) for h in range(24) if a <= h < b}
         daily_wh = self.panel_w * self.peak_sun_h * self.system_eff * sun_factor
-        return daily_wh * weights[hour - a] / sum(weights)
+        return daily_wh * weights[hour] / sum(weights.values())
 
 
 @dataclass
@@ -123,23 +126,19 @@ PLANS = ("A", "B", "C")
 SOCKET_MODES = ("always", "night_off", "weekend_off")
 
 
-def bus_watts(device_w, eff, via_splitter=False):
-    """Watts the 24 V bus supplies for a PoE device drawing device_w."""
-    loss = eff["cable"] * eff["stepup"] * (eff["splitter"] if via_splitter else 1.0)
-    return device_w / loss
-
-
 def v11_loads(site):
     """Typical bus watts per load, grouped by what sheds them. -> {name: (watts, group)}
     group: 'poe' (off at Stage 2), 'router', 'bus' (monitor and relays), 'flood' (night, Stage 1).
-    PoE devices are the switch's port table, at its typical draw, through the step-up."""
+    PoE devices are the switch's port table, at its typical draw, through the step-up; a router on a
+    powered port is one of them, otherwise it has its own injector and stays on after Stage 2."""
     from catalog import fitted
     from devices.poe_model import efficiencies, port_table
     eff, f = efficiencies(site), site["fitted"]
-    out = {r["device"]: (r["draw_typ_w"] / eff["stepup"], "poe")
-           for r in port_table(site, include_legacy=False) if r["class"] is not None}
+    powered = [r for r in port_table(site, include_legacy=False) if r["class"] is not None]
+    out = {r["device"]: (r["draw_typ_w"] / eff["stepup"], "poe") for r in powered}
     out["switch"] = (f["switch"]["watts_typ"] / eff["stepup"], "poe")
-    out["router"] = (f["router"]["watts_typ"] / eff["dc12"], "router")
+    if not any(r["role"] == "router" for r in powered):
+        out["router"] = (f["router"]["watts_typ"] / eff["dc12"], "router")
     for p in fitted(site, "monitor"):
         out[p["id"]] = (p["watts_typ"], "bus")
     out["floodlight"] = (f["floodlight"]["power_w"], "flood")

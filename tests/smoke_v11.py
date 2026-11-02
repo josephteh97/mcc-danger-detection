@@ -105,9 +105,10 @@ def u19():
 
 @check("U20", "PoE++ losses")
 def u20():
-    from devices.poe_model import efficiencies
-    from devices.power_model import bus_watts
-    w = bus_watts(25.0, efficiencies(SITE), via_splitter=True)
+    from devices.power_model import v11_loads
+    box = SITE["fitted"]["ai_box"]
+    site = {**SITE, "fitted": {**SITE["fitted"], "ai_box": {**box, "watts_typ": 25.0}}}
+    w = v11_loads(site)[box["id"]][0]                  # the loads the power model runs on
     return near(w, 30.5, 0.5), f"25 W at the AI box takes {w:.2f} W from the bus", "30.5 ± 0.5 W"
 
 

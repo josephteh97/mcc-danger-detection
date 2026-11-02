@@ -150,8 +150,13 @@ def load_site(path=None, overrides=None, profile=None, product_overrides=None):
     if unknown:
         raise CatalogError(f"{path}: products: unknown category {', '.join(unknown)}")
     edits = site["product_overrides"] = product_overrides or {}
-    site["fitted"] = {c: [load_product(c, n, edits.get(n)) for n in names] if isinstance(names, list)
-                      else load_product(c, names, edits.get(names))
+    loaded = {}
+
+    def product(category, name):                  # each product file read once per site
+        if (category, name) not in loaded:
+            loaded[category, name] = load_product(category, name, edits.get(name))
+        return loaded[category, name]
+    site["fitted"] = {c: [product(c, n) for n in names] if isinstance(names, list) else product(c, names)
                       for c, names in fitted_names.items()}
     check_laser_fit(site["fitted"]["laser"])
     return site
@@ -162,9 +167,12 @@ def plan_products(site, plan=None):
     first use and kept on the site, so a bad name in a plan fails only the power callers."""
     if "_plan_products" not in site:
         edits = site.get("product_overrides") or {}
+        loaded = {(c, p["id"]): p for c in site["fitted"] for p in fitted(site, c)}   # reuse the fitted ones
 
         def product(category, name):
-            return load_product(category, name, edits.get(name)) if name else None
+            if name and (category, name) not in loaded:
+                loaded[category, name] = load_product(category, name, edits.get(name))
+            return loaded.get((category, name)) if name else None
         site["_plan_products"] = {
             name: {"battery": product("battery", p.get("battery")), "solar": product("solar", p.get("solar")),
                    "parts": [product("power_conv", n) for n in p.get("parts", [])]}

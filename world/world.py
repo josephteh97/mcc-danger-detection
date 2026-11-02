@@ -168,10 +168,15 @@ class World:
             with np.errstate(invalid="ignore", over="ignore"):
                 lux = np.where(ground, np.nan_to_num(self.lux_at(gx, gy, 0.0), nan=0.0, posinf=0.0), 0.0)
         if self.ir_night:                               # IR illuminator, plus the floodlight when on
-            return np.clip(0.012 + IR_GAIN * 4 * ir + NIGHT_GAIN * lux, 0, 1.2).astype(np.float32)
+            return self._ir_level(ir, lux).astype(np.float32)
         if preset.floodlight:
             return np.where(ground, np.clip(0.035 + NIGHT_GAIN * lux, 0, 1.2), 0.035).astype(np.float32)
         return np.clip(0.012 + IR_GAIN * ir, 0, 1.0).astype(np.float32)
+
+    @staticmethod
+    def _ir_level(ir, lux):
+        """IR night light from the illuminator ((range / distance)^2) and the floodlight (lux)."""
+        return np.clip(0.012 + IR_GAIN * 4 * ir + NIGHT_GAIN * lux, 0, 1.2)
 
     def lux_at(self, x, y, z):
         """Floodlight illuminance (lux) at ground points: lumens spread over the beam footprint."""
@@ -284,6 +289,10 @@ class World:
     def _worker_light(self, w, preset):
         if not preset.night:
             return preset.light
+        if self.ir_night:                               # lit like the ground around the worker
+            ir = (self.site["fitted"]["camera"]["ir_range_m"] / max(self.cam.distance_to([w.x, w.y, 1.2]), 1.0)) ** 2
+            lux = float(np.nan_to_num(self.lux_at(w.x, w.y, 1.2))) if preset.floodlight else 0.0
+            return preset.light * float(self._ir_level(ir, lux))
         if preset.floodlight:
             return preset.light * float(np.clip(0.035 + NIGHT_GAIN * self.lux_at(w.x, w.y, 1.2), 0, 1.2))
         d = self.cam.distance_to([w.x, w.y, 1.2])
@@ -391,9 +400,8 @@ class World:
         if p.glare > 0:
             img = wx.apply_glare(img, self._cached(("glare",), lambda: wx.make_glare(self.H, self.W, self.rng)), cam)
         img = wx.apply_window_fog(img, p.window_fog)
-        drops = self._cached(("drops",) + key, lambda: wx.make_drop_mask(
-            self.H, self.W, wx.drop_coverage(p, cam), np.random.default_rng(self.seed + 2)))
-        img = wx.apply_drops(img, self._cached(("drops_sparse",) + key, lambda: wx.sparse(drops)))
+        img = wx.apply_drops(img, self._cached(("drops",) + key, lambda: wx.sparse(wx.make_drop_mask(
+            self.H, self.W, wx.drop_coverage(p, cam), np.random.default_rng(self.seed + 2)))))
         if p.mud:
             img = wx.apply_mud(img, self._cached(("mud",), lambda: wx.make_mud(self.H, self.W, np.random.default_rng(self.seed + 3))))
         sigma = p.noise

@@ -25,9 +25,18 @@ def undistort_pixel(u, v, lens=None):
     what the calibration homography maps. lens: {"cx", "cy", "fx", "fp", "k"} for the radial lens
     r = fp·atan(k·t)/k (t: tangent of the ray's angle off the axis; fx: the pinhole's focal length,
     all in stream pixels). None, as in phase 1, leaves the pixel unchanged. u and v may be numpy
-    arrays (the renderer builds its remap grid with this)."""
+    arrays (the renderer builds its remap grid with this); single pixels, as the app passes them,
+    take a plain-float path, many times faster than numpy on one value."""
     if not lens:
         return u, v
+    if isinstance(u, (int, float)) and isinstance(v, (int, float)):
+        dx, dy = u - lens["cx"], v - lens["cy"]
+        r = math.hypot(dx, dy)
+        if r <= 1e-9:
+            return float(u), float(v)
+        a = min(lens["k"] * r / lens["fp"], math.pi / 2 - 1e-3)
+        s = lens["fx"] * math.tan(a) / lens["k"] / r
+        return lens["cx"] + dx * s, lens["cy"] + dy * s
     dx, dy = np.subtract(u, lens["cx"]), np.subtract(v, lens["cy"])
     r = np.hypot(dx, dy)
     a = np.minimum(lens["k"] * r / lens["fp"], math.pi / 2 - 1e-3)

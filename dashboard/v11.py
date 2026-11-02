@@ -6,6 +6,7 @@ What-if values never touch the catalogue files: they apply to one calculation on
 """
 from __future__ import annotations
 
+import math
 import time
 
 import catalog
@@ -19,43 +20,74 @@ from tools import network
 PRODUCT_FIELDS = ("price_sgd", "watts_typ", "watts_max", "poe_class", "power_w", "efficiency", "rated_w",
                   "capacity_ah", "voltage_v", "panel_w", "poe_budget_w", "hfov_deg", "dori_fp_px", "lumens")
 
-# Settings for the what-if runs themselves, not part of the site
-RUN_DEFAULTS = {"sun_factor": 0.3, "days": 3, "socket_off_h": 60}
-POSE = {"stand_distance_m": "distance", "camera_height_m": "height_m"}    # from tools.coverage.pose_check
-
-# Site settings: key -> (label, unit, where): "run" (RUN_DEFAULTS), "pose", or a path into the site
+# Site settings: key -> (label, unit, where, default, minimum). where: ("run",) for the what-if runs
+# themselves (not part of the site), ("pose", <pose_check key>), or a path into the site; default
+# fills a setting the site leaves out; a keyed-in value below minimum is refused (None: no limit).
+POSITIVE = 1e-9
 SITE_FIELDS = {
-    "stand_distance_m": ("Stand distance from the pit centre", "m", "pose"),
-    "camera_height_m": ("Camera height", "m", "pose"),
-    "tilt_deg": ("Camera tilt below horizontal", "°", ("camera", "tilt_deg")),
-    "switch_budget_w": ("Switch PoE budget", "W", ("fitted", "switch", "poe_budget_w")),
-    "tiles": ("Detector on full-resolution tiles (1 = yes)", "", ("detector", "tiles")),
-    "input_px": ("Detector input width without tiles", "px", ("detector", "input_px")),
-    "density_px_per_m": ("Required density", "px/m", ("detector", "density_px_per_m")),
-    "sun_factor": ("Sun factor for the battery runs", "", "run"),
-    "days": ("Days in the battery runs", "", "run"),
-    "socket_off_h": ("Plan A: hours with the socket off", "h", "run"),
-    "events_per_day": ("Events a day", "", ("network", "events_per_day")),
-    "clip_mb": ("Clip size", "MB", ("network", "clip_mb")),
-    "view_hours_per_day": ("Live viewing a day", "h", ("network", "view_hours_per_day")),
-    "view_mbps": ("Live view bitrate", "Mbit/s", ("network", "view_mbps")),
-    "sim_plan_gb": ("SIM data plan", "GB", ("network", "sim_plan_gb")),
-    "cable_eff": ("PoE cable efficiency", "", ("power", "efficiency", "cable")),
-    "laser_controller_w": ("Laser controller typical power", "W", ("laser_controller", "watts_typ")),
-    "laser_controller_sgd": ("Laser controller price", "S$", ("laser_controller", "price_sgd")),
+    "stand_distance_m": ("Stand distance from the pit centre", "m", ("pose", "distance"), None, POSITIVE),
+    "camera_height_m": ("Camera height", "m", ("pose", "height_m"), None, POSITIVE),
+    "tilt_deg": ("Camera tilt below horizontal", "°", ("camera", "tilt_deg"), None, POSITIVE),
+    "switch_budget_w": ("Switch PoE budget", "W", ("fitted", "switch", "poe_budget_w"), None, 0),
+    "tiles": ("Detector on full-resolution tiles (1 = yes)", "", ("detector", "tiles"), False, None),
+    "input_px": ("Detector input width without tiles", "px", ("detector", "input_px"), None, 1),
+    "density_px_per_m": ("Required density", "px/m", ("detector", "density_px_per_m"), None, POSITIVE),
+    "sun_factor": ("Sun factor for the battery runs", "", ("run",), 0.3, 0),
+    "days": ("Days in the battery runs", "", ("run",), 3, 1),
+    "socket_off_h": ("Plan A: hours with the socket off", "h", ("run",), 60, 0),
+    "events_per_day": ("Events a day", "", ("network", "events_per_day"), None, 0),
+    "clip_mb": ("Clip size", "MB", ("network", "clip_mb"), None, 0),
+    "view_hours_per_day": ("Live viewing a day", "h", ("network", "view_hours_per_day"), None, 0),
+    "view_mbps": ("Live view bitrate", "Mbit/s", ("network", "view_mbps"), None, 0),
+    "sim_plan_gb": ("SIM data plan", "GB", ("network", "sim_plan_gb"), None, 0),
+    "cable_eff": ("PoE cable efficiency", "", ("power", "efficiency", "cable"), None, POSITIVE),
+    "laser_controller_w": ("Laser controller typical power", "W", ("laser_controller", "watts_typ"), None, 0),
+    "laser_controller_sgd": ("Laser controller price", "S$", ("laser_controller", "price_sgd"), None, 0),
 }
+# Product fields that divide (efficiencies, capacities, lens figures) must stay above zero
+POSITIVE_PRODUCT_FIELDS = {"efficiency", "capacity_ah", "voltage_v", "hfov_deg", "dori_fp_px"}
 
 
-def _value(site, key):
-    where = SITE_FIELDS[key][2]
-    if where == "run":
-        return RUN_DEFAULTS[key]
-    if where == "pose":
-        return cov.pose_check(site)[POSE[key]]
+def _tilt(site):
+    """The camera's tilt below horizontal: the site's, else the one that aims it at look_at."""
+    sc = site["camera"]
+    if "tilt_deg" in sc:
+        return sc["tilt_deg"]
+    h = sc.get("height_m", site["fitted"]["mast"]["height_m"])
+    return math.degrees(math.atan2(h, math.dist(sc["xy"], sc.get("look_at", [0.0, 0.0]))))
+
+
+def _value(site, key, pose):
+    where, default = SITE_FIELDS[key][2], SITE_FIELDS[key][3]
+    if where[0] == "run":
+        return default
+    if where[0] == "pose":
+        return pose[where[1]]
+    if key == "tilt_deg":
+        return _tilt(site)
     node = site
-    for k in where:
+    for k in where[:-1]:
         node = node[k]
-    return node
+    return node.get(where[-1], default)
+
+
+def _number(name, v, minimum):
+    """A keyed-in value as a finite float, refused (ValueError) below its minimum."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name}: '{v}' is not a number") from None
+    if not math.isfinite(x) or (minimum is not None and x < minimum):
+        raise ValueError(f"{name}: {v} is out of range" + ("" if minimum is None else
+                         " (must be above 0)" if minimum == POSITIVE else f" (must be at least {minimum:g})"))
+    return x
+
+
+def _flag(v):
+    """1/0, true/false, yes/no, as a number or text."""
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(v)
 
 
 def fields(profile="v11"):
@@ -67,9 +99,10 @@ def fields(profile="v11"):
         products.setdefault(p["id"], {
             "id": p["id"], "name": p["name"], "verified": p["verified"], "source": p["source"],
             "fields": {f: p[f] for f in PRODUCT_FIELDS if isinstance(p.get(f), (int, float)) and not isinstance(p.get(f), bool)}})
+    pose = cov.pose_check(site)
     return {"products": list(products.values()),
-            "site": {k: {"label": lab, "unit": unit, "value": round(float(_value(site, k)), 3)}
-                     for k, (lab, unit, _) in SITE_FIELDS.items()}}
+            "site": {k: {"label": lab, "unit": unit, "value": round(float(_value(site, k, pose)), 3)}
+                     for k, (lab, unit, *_) in SITE_FIELDS.items()}}
 
 
 def _apply_site(site, s):
@@ -77,22 +110,24 @@ def _apply_site(site, s):
     site = cov.moved(site, s.get("stand_distance_m"), s.get("camera_height_m"))
     for key, v in s.items():
         where = SITE_FIELDS[key][2]
-        if where in ("run", "pose"):
+        if where[0] in ("run", "pose"):
             continue
         node = site
         for k in where[:-1]:
-            node = node[k]
-        node[where[-1]] = bool(v) if key == "tiles" else float(v)
+            node = node.setdefault(k, {})
+        node[where[-1]] = v
     return site
 
 
 def whatif(products=None, settings=None, profile="v11"):
     """Every v11 model's result for these product values and site settings."""
-    settings = {k: v for k, v in (settings or {}).items() if k in SITE_FIELDS and v is not None and v != ""}
-    products = {pid: {f: float(v) for f, v in vals.items() if f in PRODUCT_FIELDS}
+    settings = {k: _flag(v) if k == "tiles" else _number(SITE_FIELDS[k][0], v, SITE_FIELDS[k][4])
+                for k, v in (settings or {}).items() if k in SITE_FIELDS and v is not None and v != ""}
+    products = {pid: {f: _number(f"{pid} {f}", v, POSITIVE if f in POSITIVE_PRODUCT_FIELDS else 0)
+                      for f, v in vals.items() if f in PRODUCT_FIELDS}
                 for pid, vals in (products or {}).items()}
     t0 = time.monotonic()
-    run = {**RUN_DEFAULTS, **{k: v for k, v in settings.items() if k in RUN_DEFAULTS}}
+    run = {k: settings.get(k, f[3]) for k, f in SITE_FIELDS.items() if f[2] == ("run",)}
     site = _apply_site(catalog.load_site(profile=profile, product_overrides=products), settings)
     poe = poe_model.check(site)
     sun, days = float(run["sun_factor"]), int(run["days"])
@@ -158,7 +193,7 @@ def coverage(site, step=0.5):
 
 def hud_static(site):
     """The HUD numbers that depend only on the site: PoE, plan, battery size, 4G estimate (the server
-    adds month-to-date data per request)."""
+    adds month-to-date data per request, and rounds both)."""
     poe = poe_model.check(site)
     plan = "A"
     cfg = V11PowerConfig.from_site(site, plan)
@@ -166,4 +201,4 @@ def hud_static(site):
     return {"poe": {"draw_w": round(poe["draw_typ_w"], 1), "reserved_w": poe["reserved_w"], "budget_w": poe["budget_w"]},
             "power": {"plan": plan, "average_load_w": round(cfg.average_load_w(), 1), "battery_wh": cfg.battery_wh,
                       "plans": {k: v["name"] for k, v in site["power_plans"].items()}},
-            "data": {"month_estimate_gb": round(net["data"]["total_gb"], 1), "plan_gb": net["plan_gb"]}}
+            "data": {"month_estimate_gb": net["data"]["total_gb"], "plan_gb": net["plan_gb"]}}
