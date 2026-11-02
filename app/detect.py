@@ -113,18 +113,22 @@ class YoloDetector:
         self.net = cv2.dnn.readNetFromONNX(model)
 
     def run(self, frame, now=None):
+        return [box for box, _ in self.scored(frame)]
+
+    def scored(self, frame):
+        """[(box, confidence)] for one frame (the field-test sweep records the confidence)."""
         if not self.tiles:
             return self._run_one(frame)
         s, h, w = self.size, *frame.shape[:2]
         step = max(1, s * 3 // 4)
-        boxes = []
+        found = []
         for y in range(0, max(1, h - s // 4), step):
             for x in range(0, max(1, w - s // 4), step):
-                boxes += [(x0 + x, y0 + y, x1 + x, y1 + y) for x0, y0, x1, y1 in self._run_one(frame[y:y + s, x:x + s])]
-        if not boxes:
+                found += [((x0 + x, y0 + y, x1 + x, y1 + y), c) for (x0, y0, x1, y1), c in self._run_one(frame[y:y + s, x:x + s])]
+        if not found:
             return []
-        keep = self.cv2.dnn.NMSBoxes([[b[0], b[1], b[2] - b[0], b[3] - b[1]] for b in boxes], [1.0] * len(boxes), 0.0, self.nms)
-        return [boxes[i] for i in keep]
+        keep = self.cv2.dnn.NMSBoxes([[b[0], b[1], b[2] - b[0], b[3] - b[1]] for b, _ in found], [1.0] * len(found), 0.0, self.nms)
+        return [found[i] for i in keep]
 
     def _run_one(self, frame):
         cv2, s = self.cv2, self.size
@@ -141,7 +145,7 @@ class YoloDetector:
             boxes.append([(cx - bw / 2) * w / s, (cy - bh / 2) * h / s, bw * w / s, bh * h / s])
             scores.append(score)
         keep = cv2.dnn.NMSBoxes(boxes, scores, self.conf, self.nms)
-        return [(b[0], b[1], b[0] + b[2], b[1] + b[3]) for b in (boxes[i] for i in keep)]
+        return [((b[0], b[1], b[0] + b[2], b[1] + b[3]), scores[i]) for i, b in ((i, boxes[i]) for i in keep)]
 
 
 def make_detector(cfg):

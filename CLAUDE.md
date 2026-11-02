@@ -15,9 +15,10 @@ Setup: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirem
 Quick checks (no Docker), each script is standalone:
 ```bash
 python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py \
-  && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py
+  && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py \
+  && python3 tests/smoke_fieldtest.py
 ```
-Expected: **53 checks, 52 PASS, 1 known FAIL (V11)**. The first five scripts always load the phase-1 profile (36 PASS + V11); `smoke_v11.py` runs U11–U26 on v11. Legacy identification tests: `pytest --legacy tests/legacy`. `tests/_check.py` holds `KNOWN_FAIL`; a script exits 1 on any regression *or* if V11 starts passing (then update the matrix).
+Expected: **64 checks, 63 PASS, 1 known FAIL (V11)**. The first five scripts always load the phase-1 profile (36 PASS + V11); `smoke_v11.py` runs U11–U26 on v11; `smoke_fieldtest.py` runs P01–P11 (phone field test, synthetic camera). Legacy identification tests: `pytest --legacy tests/legacy`. `tests/_check.py` holds `KNOWN_FAIL`; a script exits 1 on any regression *or* if V11 starts passing (then update the matrix).
 
 pytest (quick checks via `test_quick.py`, static compose checks via `test_compose.py`, full stack via `test_stack.py`):
 ```bash
@@ -36,7 +37,7 @@ WEATHER=night_rain SCENARIO=idle docker compose up -d --build
 docker compose down
 ```
 
-Tools: `python3 -m tools.trial [--headless]`, `python3 -m tools.compare <category> <a> <b> --weather ...`, `python3 -m tools.evaluate logs/run-<time>`, `python3 devices/power_model.py --days 3 --weather overcast`. Remote sharing: `./share.sh start|status|stop` (devtunnel; never anonymous — see README).
+Tools: `python3 -m tools.trial [--headless]`, `python3 -m tools.compare <category> <a> <b> --weather ...`, `python3 -m tools.evaluate logs/run-<time>`, `python3 devices/power_model.py --days 3 --weather overcast`. Phone field test (host only, page on 127.0.0.1:8090): `python3 -m tools.fieldtest probe|serve|layout|calibrate|measure|sweep|report|distortion`; settings in `fieldtest/phone.yaml`, output in `reports/fieldtest/<date>/`. Remote sharing: `./share.sh start|status|stop` (devtunnel; never anonymous — see README).
 
 ## Architecture
 

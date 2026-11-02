@@ -1,0 +1,51 @@
+# The phone used for the field test (tools/fieldtest). A test instrument, not a product: it stays out
+# of catalog/ and its cost totals. Nominal values from the published specs; the checkerboard
+# calibration replaces f/p and distortion per stream size.
+phone: Redmi Note 13 Pro
+
+# IP Webcam endpoints. Set the address the app shows, and the login set under "Local broadcasting"
+# (the tool never prints the password). MJPEG instead of RTSP: http://<phone>:8080/video
+stream_url: rtsp://user:password@192.168.1.20:8080/h264_ulaw.sdp
+still_url: http://user:password@192.168.1.20:8080/photo.jpg
+sensors_url: http://user:password@192.168.1.20:8080/sensors.json
+
+main:                              # Samsung ISOCELL HP3
+  sensor: Samsung ISOCELL HP3
+  megapixels: 200
+  optical_format: 1/1.4"
+  native_pitch_um: 0.56
+  native_px: [16320, 12240]
+  sensor_mm: [9.14, 6.85]
+  focal_mm: 6.07                   # physical; 23 mm equivalent (crop factor 3.79)
+  focal_equiv_mm: 23
+  crop_modes_mm: [28, 35]          # the phone camera app's crops of the middle of the sensor
+  aperture: 1.7
+  photo_px: [4080, 3060]           # normal 12.5 MP photo (16 pixels combined into 1)
+
+ultrawide:                         # for the distortion test, with distortion correction off
+  megapixels: 8
+  optical_format: 1/4"
+  pitch_um: 1.12
+  native_px: [3264, 2448]
+  quoted_fov_deg: 118              # probably diagonal: calibration decides
+  aperture: 2.2
+
+checkerboard:
+  inner_corners: [9, 6]
+  square_mm: 25
+  min_views: 12
+
+rho_px_per_m: 100                  # required density (the twin's 100 px for a 1.0 m squatting worker)
+
+presets:                           # field-test setups (design.md D5)
+  default: { focal_equiv_mm: 23, frame_px: [1440, 1080], rho: 100, height_m: 1.5 }
+  office:  { focal_equiv_mm: 23, frame_px: [4080, 3060], rho: 680, height_m: 0.9 }
+
+# Pass bands (design.md D6)
+pass:
+  lens_rms_px: 0.5
+  pose_height_m: 0.05
+  pose_reproj_px: 2.0
+  overlay_pct_of_width: 2.0
+  density_pct: 5.0
+  density_floor_px: 1.0            # for objects under 20 px

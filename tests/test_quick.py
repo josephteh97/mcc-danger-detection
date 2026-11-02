@@ -1,11 +1,11 @@
-"""The 53 quick checks under pytest (for the JUnit report). V11 is an expected failure."""
+"""The 64 quick checks under pytest (for the JUnit report). V11 is an expected failure."""
 import importlib
 
 import pytest
 
 import _check
 
-for _m in ("smoke", "smoke_links", "smoke_weather", "smoke_catalog", "smoke_trial", "smoke_v11"):
+for _m in ("smoke", "smoke_links", "smoke_weather", "smoke_catalog", "smoke_trial", "smoke_v11", "smoke_fieldtest"):
     importlib.import_module(_m)
 
 

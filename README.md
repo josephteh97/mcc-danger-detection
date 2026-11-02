@@ -36,10 +36,11 @@ pip install pygame                       # optional: trial-mode window and the n
 
 ```bash
 python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py \
-  && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py
+  && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py \
+  && python3 tests/smoke_fieldtest.py
 ```
 
-The expected result is **53 checks: 52 PASS and 1 known FAIL**. V11 fails because the phase-1 battery runs flat over three heavily overcast days (the second finding). A script exits 0 when every check matches its expected outcome, so the chain runs to the end. It exits 1 on a regression, or if V11 starts passing. The first five scripts (36 PASS + V11) always load the phase-1 profile.
+The expected result is **64 checks: 63 PASS and 1 known FAIL**. V11 fails because the phase-1 battery runs flat over three heavily overcast days (the second finding). A script exits 0 when every check matches its expected outcome, so the chain runs to the end. It exits 1 on a regression, or if V11 starts passing. The first five scripts (36 PASS + V11) always load the phase-1 profile.
 
 `smoke_v11.py` runs U11–U26 on the v11 profile:
 
@@ -48,6 +49,8 @@ The expected result is **53 checks: 52 PASS and 1 known FAIL**. V11 fails becaus
 | U11–U16 | Lens distortion q and D, warning-ring density with tiles (and the shrunken-input fail), largest-zone solver, stand pose and height windows, stand too close |
 | U17–U23 | PoE budget (and an undersized switch), 4G data a month, PoE++ losses, continuous load, Plan B over three overcast days, Plan A shutdown order |
 | U24–U26 | No identity in v11 alarms, PoE watchdog restart (model), laser reach from the stand |
+
+`smoke_fieldtest.py` runs P01–P11 for the phone field-test tool on a synthetic camera (no phone or network): the solver numbers and their scale invariance, the projection round trip, pose from cones, checkerboard calibration, pole density, the square's near corners, the pass bands, the 16:9 guard, loopback binding, and D recovered from a synthetic 102° lens.
 
 Legacy identification tests are skipped by default; run them with `pytest --legacy tests/legacy`.
 
@@ -183,6 +186,7 @@ python3 -m tools.coverage [--distance 10] [--height 4.5]   # v11 coverage, place
 python3 -m tools.network [--events 120]                    # v11 link loads and 4G data a month
 python3 devices/poe_model.py [--budget 90]                 # v11 PoE port map and budget
 docker exec twin-engineer-1 ssh 192.168.10.2               # v11: an engineer on the AI box through the tailnet
+python3 -m tools.fieldtest serve                           # phone field test, page on 127.0.0.1:8090 (below)
 ```
 
 Trial keys:
@@ -199,6 +203,39 @@ Trial keys:
 | P | pause |
 | Q or Esc | quit and save `logs/trial-<time>.json` |
 
+## Field test with a phone (`tools/fieldtest`)
+
+Checks the coverage formulas (ρ = (f/p)/z, the largest square S and its centre d, the placement and height windows) in a car park with a real lens, before the 12 MP camera is bought. A phone streams over Wi-Fi with the free IP Webcam app. The tool runs on this PC, not in Docker, and uses the twin's own code: `tools.coverage.largest_zone`, `catalog.effects`, `world.camera.PinholeCamera` and `app.detect`. Change: `openspec/changes/add-phone-fieldtest/`.
+
+**Phone setup (IP Webcam).** Put the phone and the PC on the same Wi-Fi (or the PC's hotspot). In Video preferences, choose the main (back) camera, a 4:3 size (1440 × 1080 or 1920 × 1440), stabilisation off and zoom 1×. Set focus to fixed far (or continuous video) and don't change it after calibrating. Set a login under Local broadcasting, start the server, and put the address it shows into `fieldtest/phone.yaml` (`stream_url`, `still_url`, `sensors_url`). The tool never prints the password.
+
+```bash
+python3 -m tools.fieldtest probe                     # frame size and fps; warns if the stream isn't 4:3
+python3 -m tools.fieldtest layout                    # cone positions for the default test (1440 x 1080, rho 100)
+python3 -m tools.fieldtest layout --preset office    # a 3 x 4 m room: 12.5 MP photo, rho 680, phone at 0.9 m
+python3 -m tools.fieldtest serve                     # the page: http://127.0.0.1:8090 (--bind to open it up)
+python3 -m tools.fieldtest serve --file reports/fieldtest/<date>/rec_<time>.mp4   # the same on a recording
+python3 -m tools.fieldtest measure --session reports/fieldtest/<date>/session.json   # replay the clicks
+python3 -m tools.fieldtest sweep --file REC --model person.onnx --steps steps.csv --session S.json
+python3 -m tools.fieldtest distortion --images 'ultrawide/*.jpg' --pole-centre u1,v1,u2,v2 --pole-edge u1,v1,u2,v2
+```
+
+**On the page:** capture 12–15 checkerboard views (9 × 6 inner corners, 25 mm squares) and press Calibrate. Tape out the layout sheet's cones, then in Cone mode click each cone's base after typing its x and y (and its corner name). The pose solves from four cones. In Measure mode, click a 1 m pole's base and then its top. Write report saves `report.md`, `measurements.csv`, `overlay.png` and `layout.txt` to `reports/fieldtest/<date>/` (git-ignored), and every click is saved in `session.json`.
+
+**Default level run:** phone level at 1.5 m, 23 mm, 1440 × 1080, ρ = 100 px/m. That gives z_max 9.57 m, W_max 14.4 m, S 5.75 m, d 6.69 m and near edge 3.82 m; cones at (±2.87, 9.57) and (±2.87, 3.82) m. A 1 m pole at a far corner should be about 100 px. For the tilted run, tilt the phone about 10° down: the page then shows the plan-view px/m beside the 3D one, to show how far they drift.
+
+**What PASS means** (`fieldtest/phone.yaml`, design D6):
+
+| Step | Passes when |
+|---|---|
+| Lens | checkerboard reprojection at most 0.5 px (fx is shown against the nominal f/p) |
+| Pose | solved height within 5 cm of the taped height, every cone reprojected within 2 px |
+| Overlay | each corner cone within 2% of the image width of its drawn corner |
+| Density | each measured length within ±5% of the prediction (±1 px under 20 px) |
+| Detection | the detection rate stays at 90% or more down to a 100 px box |
+
+Recordings that show people are personal data. Delete them after the test, and commit only the report summary.
+
 ## Layout
 
 ```
@@ -212,16 +249,18 @@ remote/        v11 router (Tailscale node), cloud relay, engineer client (emulat
 orin/          Dockerfile (fast and JetPack flavours), entrypoint.sh, horn_monitor.py
 dashboard/     server.py, live.py, faults.py, v11.py (what-if, HUD, heatmap), static/ (three.js, add-ons and hls.js vendored)
 catalog/       one folder per category, _schema.yaml plus product files; effects.py
-tools/         trial.py, compare.py, evaluate.py, calibrate.py, coverage.py, network.py
+tools/         trial.py, compare.py, evaluate.py, calibrate.py, coverage.py, network.py, fieldtest/ (phone field test)
+fieldtest/     phone.yaml (the field-test phone: a test instrument, kept out of catalog/)
 tests/         smoke*.py (quick checks), test_compose.py (static), test_stack.py (full stack), test_quick.py (pytest wrapper),
-               test_v11_world.py, test_links_tcp.py, test_share.py, test_whatif.py, legacy/ (pytest --legacy)
+               test_v11_world.py, test_v11_power.py, test_links_tcp.py, test_share.py, test_whatif.py, test_fieldtest.py,
+               fakes/ (stand-in curl, devtunnel and the synthetic field-test camera), legacy/ (pytest --legacy)
 ```
 
 ## Deviations from the guide
 
 The guide's "Source files" tab was not available, so every module was written from the guide's text and tables. All of these deviations are recorded in `openspec/changes/archive/2026-10-29-add-digital-twin-phase1/design.md`.
 
-- **37 phase-1 quick checks.** These are the 27 V-rows the guide marks Pass or Fail before the full stack, plus 10 named unit checks (U01-U10). Version 11 adds U11-U26 (53 in all).
+- **37 phase-1 quick checks.** These are the 27 V-rows the guide marks Pass or Fail before the full stack, plus 10 named unit checks (U01-U10). Version 11 adds U11-U26, and the phone field test adds P01-P11 (64 in all).
 - **Loopback-only ports.** The dashboard is published on 127.0.0.1 because it holds the Docker socket. The control port 9200 is also loopback only; remote people drive the worker through the dashboard.
 - **Camera on two networks.** The camera also joins `sim_ctrl`, so the dashboard can serve its HLS stream. The world feeds the camera over `sim_ctrl` too, so the "camera cable" fault cuts only the Orin's view.
 - **Live weather and scenario switching.** These go over the world's control port instead of restarting the world container.
@@ -241,4 +280,5 @@ The guide's "Source files" tab was not available, so every module was written fr
 - **4G estimate** (D15). Monthly data counts event clips, event messages and live viewing. The twin's 1 s status topic is a twin convenience and is not counted.
 - **PoE watchdog location** (D16). It runs in the dashboard, which holds the Docker socket, rather than in the devices container.
 - **Subnet route as a SOCKS5 proxy** (D17). Docker drops packets routed between two internal networks. So the router node serves the engineer's subnet route the way Tailscale's userspace-networking mode does: as a SOCKS5 proxy on its tailnet address. The engineer's SSH goes through it.
+- **Phone field test** (`openspec/changes/add-phone-fieldtest/design.md` D11): P11 checks that calibration recovers D and the real lens's edge g, not that 1 − D·u² matches the edge (it folds over before the edge of a 102° lens, as above). The twin's YOLO detector gains `scored()`, which returns each box's confidence for the sweep; `run()` is unchanged.
 - **Workers are articulated, not loaded models.** The 3D view builds jointed figures from primitives (no GLTF), so nothing new is downloaded.
