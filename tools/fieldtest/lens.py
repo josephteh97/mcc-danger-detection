@@ -20,11 +20,11 @@ _ITER = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 100, 1e-10)
 
 
 class FieldLens:
-    def __init__(self, size, fx, fy, cx, cy, dist=(), rms=None, views=0, source="nominal"):
+    def __init__(self, size, fx, fy, cx, cy, dist=(), rms=None, views=0, source="nominal", focal_equiv_mm=None):
         self.size = (int(size[0]), int(size[1]))
         self.fx, self.fy, self.cx, self.cy = float(fx), float(fy), float(cx), float(cy)
         self.dist = np.asarray(dist if len(dist) else np.zeros(5), dtype=np.float64).ravel()
-        self.rms, self.views, self.source = rms, views, source
+        self.rms, self.views, self.source, self.focal_equiv_mm = rms, views, source, focal_equiv_mm
         self.K = np.array([[self.fx, 0, self.cx], [0, self.fy, self.cy], [0, 0, 1.0]])
         self.K_ideal = np.array([[self.fx, 0, self.cx], [0, self.fx, self.cy], [0, 0, 1.0]])
 
@@ -55,19 +55,26 @@ class FieldLens:
 
     def to_dict(self):
         return {"size": list(self.size), "fx": self.fx, "fy": self.fy, "cx": self.cx, "cy": self.cy,
-                "dist": self.dist.tolist(), "rms": self.rms, "views": self.views, "source": self.source}
+                "dist": self.dist.tolist(), "rms": self.rms, "views": self.views, "source": self.source,
+                "focal_equiv_mm": self.focal_equiv_mm}
 
     @classmethod
     def from_dict(cls, d):
-        return cls(d["size"], d["fx"], d["fy"], d["cx"], d["cy"], d.get("dist", ()), d.get("rms"),
-                   d.get("views", 0), d.get("source", "calibrated"))
+        return cls(**d)
 
 
 def calib_path(folder, size):
     return os.path.join(folder, f"calib_{size[0]}x{size[1]}.json")
 
 
-def save(lens, folder):
+def same_focal(a, b):
+    """Whether two equivalent focal lengths agree; a file saved before they were recorded has none."""
+    return a is None or b is None or float(a) == float(b)
+
+
+def save(lens, folder, focal_equiv_mm=None):
+    """Save the lens, noting the focal length it was calibrated at."""
+    lens.focal_equiv_mm = focal_equiv_mm or lens.focal_equiv_mm
     os.makedirs(folder, exist_ok=True)
     path = calib_path(folder, lens.size)
     with open(path, "w") as f:
@@ -75,13 +82,14 @@ def save(lens, folder):
     return path
 
 
-def load(folder, size):
-    """The lens calibrated at this stream size, or None."""
+def load(folder, size, focal_equiv_mm=None):
+    """The lens calibrated at this stream size and focal length, or None."""
     path = calib_path(folder, size)
     if not os.path.exists(path):
         return None
     with open(path) as f:
-        return FieldLens.from_dict(json.load(f))
+        lens = FieldLens.from_dict(json.load(f))
+    return lens if same_focal(lens.focal_equiv_mm, focal_equiv_mm) else None
 
 
 # --------------------------------------------------------------------------- camera
@@ -116,17 +124,23 @@ class FieldCamera(PinholeCamera):
         self.lens = lens
         self.width, self.height = lens.size
         self.fx, self.cx, self.cy = lens.fx, lens.cx, lens.cy
-        self.hfov_deg = math.degrees(2 * math.atan((self.width / 2) / self.fx))
-        self.look_at = self.pos + self.R[2]
         self.K = lens.K_ideal
 
     @classmethod
-    def posed(cls, lens, height_m, pitch_deg=0.0, heading_deg=0.0, roll_deg=0.0, xy=(0.0, 0.0)):
-        return cls([xy[0], xy[1], height_m], rotation(pitch_deg, heading_deg, roll_deg), lens)
+    def posed(cls, lens, height_m, pitch_deg=0.0, heading_deg=0.0, roll_deg=0.0):
+        return cls([0.0, 0.0, height_m], rotation(pitch_deg, heading_deg, roll_deg), lens)
 
     @property
     def pitch_deg(self):
         return angles(self.R)[0]
+
+    @property
+    def heading_deg(self):
+        return angles(self.R)[1]
+
+    def ground_distance(self, xy):
+        """Horizontal distance from the point under the camera to ground point xy."""
+        return math.hypot(xy[0] - self.pos[0], xy[1] - self.pos[1])
 
     def image_points(self, pts):
         """Ground-frame points (N, 3) -> real image pixels (distortion applied), and depth."""

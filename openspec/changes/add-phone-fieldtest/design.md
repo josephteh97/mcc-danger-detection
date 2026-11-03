@@ -88,6 +88,8 @@ P01–P11 run on a synthetic pinhole camera: solver numbers, scale invariance, p
 - **`app.detect.YoloDetector.scored()`.** The sweep needs each box's confidence, which `run()` drops. `scored()` returns (box, confidence) pairs with the same tiling and NMS; `run()` returns the same boxes as before.
 - **Corner coordinates.** The layout sheet prints ±2.87 m: S/2 = 2.8746 m. The ±2.88 in the tables above is the rounded S (5.75 m) halved.
 - **One camera model.** `FieldCamera` is a `world.camera.PinholeCamera` in the calibrated lens's ideal image (one focal length fx, the calibrated principal point), with any pose including roll; `FieldLens` moves clicks and drawings between that image and the real, distorted one. fy is applied when distorting, so vertical lengths use the calibrated fy.
+- **No verdict without a pose.** Before four cones are clicked the camera is an assumption (at the taped height, aimed at the square's centre). It draws the preview and fills the rows, but overlay and density read "not run": a PASS against an assumed pose would prove nothing.
+- **A saved lens belongs to its focal length.** The 23, 28 and 35 mm settings share stream sizes, so `calib_WxH.json` and `views_WxH.json` record the focal length and are not used at another one; the tool falls back to the nominal lens (and no views) until calibrated there. One calibration per size is kept, so calibrating at 28 mm replaces 23 mm. Files saved before this have no focal length and match any.
 - **Detection PASS.** The sweep step passes when the detection rate stays at 90% or more down to a 100 px box (the twin's required density for a 1 m squatting worker).
 
 ## Risks / Trade-offs

@@ -37,9 +37,7 @@ checkerboard:
   square_mm: 36                    # A3 board, 36 mm measured with a ruler
   min_views: 12
 
-rho_px_per_m: 100                  # required density (the twin's 100 px for a 1.0 m squatting worker)
-
-presets:                           # field-test setups (design.md D5)
+presets:                           # field-test setups (design.md D5); rho: required density, px/m
   default: { focal_equiv_mm: 23, frame_px: [1440, 1080], rho: 100, height_m: 1.5 }
   office:  { focal_equiv_mm: 23, frame_px: [4080, 3060], rho: 680, height_m: 0.9 }
   # The phone's RTSP app (port 1945) streams 720p only (1080p and MAX greyed out), all 16:9: no 4:3

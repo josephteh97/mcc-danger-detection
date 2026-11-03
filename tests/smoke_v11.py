@@ -2,7 +2,7 @@
 off, watchdog and laser reach (U11-U26). They load the v11 profile whatever site.yaml selects."""
 import math
 
-from _check import check, main
+from _check import check, main, near
 
 import catalog
 from catalog import effects as fx
@@ -11,10 +11,6 @@ from tools import coverage as cov
 SITE = catalog.load_site(profile="v11")
 CAMERA = SITE["fitted"]["camera"]
 RHO = SITE["detector"]["density_px_per_m"]
-
-
-def near(value, target, tol):
-    return abs(value - target) <= tol
 
 
 # --------------------------------------------------------------------------- coverage (U11-U16)

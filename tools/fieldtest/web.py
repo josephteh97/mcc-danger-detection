@@ -4,6 +4,7 @@ headless. Binds to 127.0.0.1 unless told otherwise; never joins the twin's netwo
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import threading
@@ -28,35 +29,36 @@ class Live:
 
     def __init__(self, url, preset="default", rho=None, loop=False):
         self.phone = load_phone()
-        self.url, self.loop = url, loop
+        self.loop = loop
         self.src = src.Source(url)
         frame, _ = self.src.read()
         if frame is None:
             raise OSError(f"no frames from {self.src.shown}")
         self.frame, self.lock, self.stop = frame, threading.Lock(), False
         self.folder = report_dir()
-        self.session = ss.new(self.src.size, self.src.shown, preset, self.phone, rho=rho)
-        lens = ln.load(REPORTS, self.src.size)
-        if lens:
-            self.session["lens"] = lens.to_dict()
+        self.session = ss.load_saved_lens(ss.new(self.src.size, self.src.shown, preset, self.phone, rho=rho), REPORTS)
         self.overlay, self.writer, self.rec_path = True, None, None
-        self.views = cb.load_views(REPORTS, self.src.size)      # kept across restarts; "Clear views" empties
+        self.load_views()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
+    def load_views(self):
+        """The views kept across restarts ("Clear views" empties them) for this size and focal length."""
+        self.views = cb.load_views(REPORTS, self.src.size, self.session["focal_equiv_mm"])
+
+    def save_views(self):
+        cb.save_views(self.views, REPORTS, self.src.size, self.session["focal_equiv_mm"])
+
     def _run(self):
-        period = 1.0 / self.src.file_fps if os.path.exists(self.url) and self.src.file_fps else 0.0
+        period = 1.0 / self.src.file_fps if self.src.file_fps and not self.src.stream else 0.0
         while not self.stop:
             t0 = time.monotonic()
             frame, _ = self.src.read()
             if frame is None:                    # a recording loops; a dropped stream reconnects
-                if not (self.loop or src.is_stream(self.url)):
+                if not (self.loop or self.src.stream):
                     break
-                self.src.close()
                 try:
-                    new = src.Source(self.url)
-                    new.size = self.src.size             # the page keeps its size; a change is still warned
-                    self.src = new
+                    self.src.reopen()
                 except OSError as e:
                     log.warning("%s; trying again", e)
                     time.sleep(2.0)
@@ -71,20 +73,26 @@ class Live:
     def save(self):
         return ss.save(self.session, os.path.join(self.folder, "session.json"))
 
-    def picture(self):
+    def latest(self):
+        """The latest frame, not to be written to: `_run` replaces it and never changes it."""
         with self.lock:
-            frame = self.frame.copy()
-        result, cam, z = ss.evaluate(self.session)
-        if self.overlay and src.overlay_allowed(self.src.size, ss.lens_of(self.session)):
-            return rp.annotate(frame, self.session, cam, z)
-        return frame
+            return self.frame
+
+    def picture(self):
+        frame, lens = self.latest(), ss.lens_of(self.session)
+        if not (self.overlay and src.overlay_allowed(self.src.size, lens)):
+            return frame
+        return rp.annotate(frame, self.session, ss.camera_of(self.session, lens)["camera"], ss.zone_of(self.session, lens))
+
+    def jpeg(self):
+        ok, jpg = cv2.imencode(".jpg", self.picture(), [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return jpg.tobytes() if ok else None
 
     def state(self):
-        result, cam, z = ss.evaluate(self.session)
-        lens = ss.lens_of(self.session)
+        result, cam, _ = ss.evaluate(self.session)
         return {"source": self.src.shown, "size": self.src.size, "warnings": self.src.warnings,
                 "pitch": describe_pitch(self.phone, self.src.size[0], self.session["focal_equiv_mm"]),
-                "overlay_allowed": src.overlay_allowed(self.src.size, lens), "views": len(self.views),
+                "overlay_allowed": src.overlay_allowed(self.src.size, cam.lens), "views": len(self.views),
                 "recording": self.rec_path, "folder": self.folder, "session": self.session,
                 **{k: result[k] for k in ("steps", "nominal", "pose", "zone", "layout", "corners", "overlay", "measurements")}}
 
@@ -104,9 +112,9 @@ def make_app(live):
     async def stream():
         async def frames():
             while True:
-                ok, jpg = cv2.imencode(".jpg", await asyncio.to_thread(live.picture), [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if ok:
-                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n"
+                jpg = await asyncio.to_thread(live.jpeg)
+                if jpg:
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
                 await asyncio.sleep(0.1)
         return StreamingResponse(frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
@@ -116,9 +124,14 @@ def make_app(live):
 
     @app.post("/api/settings")
     def settings(body: dict):
+        focal = live.session["focal_equiv_mm"]
         for k in ("rho", "focal_equiv_mm", "taped_height_m"):
             if body.get(k) not in (None, ""):
                 live.session[k] = float(body[k])
+        if live.session["focal_equiv_mm"] != focal:      # the lens and views of that focal length, if any
+            live.session["lens"] = None
+            ss.load_saved_lens(live.session, REPORTS)
+            live.load_views()
         if "overlay" in body:
             live.overlay = bool(body["overlay"])
         return changed()
@@ -148,29 +161,27 @@ def make_app(live):
 
     @app.post("/api/calib/capture")
     def capture():
-        with live.lock:
-            frame = live.frame.copy()
-        corners = cb.find_corners(frame, live.phone["checkerboard"]["inner_corners"])
+        corners = cb.find_corners(live.latest(), live.phone["checkerboard"]["inner_corners"])
         if corners is None:
             raise HTTPException(400, "no checkerboard in this frame")
         live.views.append(corners)
-        cb.save_views(live.views, REPORTS, live.src.size)
+        live.save_views()
         return live.state()
 
     @app.post("/api/calib/clear")
     def clear_views():
         live.views = []
-        cb.save_views(live.views, REPORTS, live.src.size)
+        live.save_views()
         return live.state()
 
     @app.post("/api/calib/solve")
     def calibrate():
-        b = live.phone["checkerboard"]
+        pattern, square_m, min_views = cb.board_settings(live.phone)
         try:
-            lens = cb.calibrate(live.views, b["inner_corners"], b["square_mm"] / 1000, live.src.size, b["min_views"])
+            lens = cb.calibrate(live.views, pattern, square_m, live.src.size, min_views)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        ln.save(lens, REPORTS)
+        ln.save(lens, REPORTS, live.session["focal_equiv_mm"])
         live.session["lens"] = lens.to_dict()
         return changed()
 
@@ -178,7 +189,6 @@ def make_app(live):
     def sensors():
         url = live.phone.get("sensors_url")
         try:
-            import json
             g = src.gravity(json.loads(src.fetch(url)))
         except Exception as e:              # the sensors are a cross-check only
             raise HTTPException(400, f"no sensor data from {src.hide_password(url)}: {e.__class__.__name__}")
@@ -192,9 +202,8 @@ def make_app(live):
     def record(body: dict):
         with live.lock:
             if body.get("on") and live.writer is None:
-                live.rec_path = os.path.join(live.folder, time.strftime("rec_%H%M%S.mp4"))
-                fps = live.src.file_fps if 0 < live.src.file_fps < 61 else 15.0
-                live.writer = cv2.VideoWriter(live.rec_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, tuple(live.src.size))
+                live.rec_path = os.path.join(live.folder, time.strftime(src.REC_NAME))
+                live.writer = live.src.writer(live.rec_path)
             elif not body.get("on") and live.writer is not None:
                 live.writer.release()
                 live.writer = None
@@ -203,10 +212,8 @@ def make_app(live):
     @app.post("/api/report")
     def report():
         result, cam, z = ss.evaluate(live.session)
-        with live.lock:
-            frame = live.frame.copy()
         live.save()
-        return {"report": rp.write(live.session, result, cam, z, live.folder, frame)}
+        return {"report": rp.write(live.session, result, cam, z, live.folder, live.latest())}
 
     return app
 
@@ -269,7 +276,7 @@ function show(s){S=s; const ss=s.session;
  $('out').textContent=`${s.source}  ${s.size[0]} x ${s.size[1]}  checkerboard views ${s.views}\\n${st}\\n`+
   `f/p ${n.fx.toFixed(1)} (nominal ${n.nominal_fp.toFixed(1)}, ${n.diff_pct.toFixed(2)}%)\\n`+
   `z_max ${z.z_max.toFixed(2)}  W_max ${z.w_max.toFixed(2)}  S ${z.s.toFixed(2)}  d ${z.d.toFixed(2)}  near ${z.near.toFixed(2)} m\\n`+
-  (p.height_m!==undefined?`pose: height ${p.height_m.toFixed(3)} m pitch ${p.pitch_deg.toFixed(2)} roll ${p.roll_deg.toFixed(2)} heading ${p.heading_deg.toFixed(2)} reproj ${p.max_reproj_px.toFixed(2)} px\\n`:'pose: click 4-8 cones\\n')+
+  (p.solved?`pose: height ${p.height_m.toFixed(3)} m pitch ${p.pitch_deg.toFixed(2)} roll ${p.roll_deg.toFixed(2)} heading ${p.heading_deg.toFixed(2)} reproj ${p.max_reproj_px.toFixed(2)} px\\n`:'pose: click 4-8 cones\\n')+
   'cones: '+ss.cones.map(c=>`${c.name||''}(${c.x},${c.y})`).join(' ')+'\\n'+
   'layout: '+Object.entries(s.layout.corners).map(([k,v])=>`${k} (${v[0]}, ${v[1]})`).join('; ')+'\\n'+
   s.measurements.map(m=>`${m.label} ${m.distance_m.toFixed(2)} m: ${m.predicted_px.toFixed(1)} vs ${m.measured_px.toFixed(1)} px ${m.error_pct.toFixed(1)}% ${m.result}`).join('\\n');}

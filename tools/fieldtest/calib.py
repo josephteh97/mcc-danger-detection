@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from tools.fieldtest import nominal_fp
-from tools.fieldtest.lens import FieldLens
+from tools.fieldtest.lens import FieldLens, same_focal
 
 _SUBPIX = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_MAX_ITER, 50, 1e-4)
 # The phone corrects its main camera's distortion, so only k1 and k2 are left to fit: with k3 and
@@ -46,17 +46,25 @@ def calibrate(corner_sets, pattern, square_m, size, min_views=12, model="main"):
     return FieldLens(size, K[0, 0], K[1, 1], K[0, 2], K[1, 2], dist.ravel(), float(rms), len(views), "checkerboard")
 
 
+def board_settings(phone):
+    """(pattern, square size in metres, minimum views) from the phone settings."""
+    b = phone["checkerboard"]
+    return b["inner_corners"], b["square_mm"] / 1000, b["min_views"]
+
+
 def calibrate_images(images, pattern, square_m, min_views=12, model="main"):
-    """Calibrate from images of one size; returns the lens and how many views showed the board."""
-    sizes = {(im.shape[1], im.shape[0]) for im in images}
+    """The lens from images of one size. `images` can be any iterable: only their corners are kept."""
+    sizes, corners = set(), []
+    for im in images:
+        sizes.add((im.shape[1], im.shape[0]))
+        corners.append(find_corners(im, pattern))
     if len(sizes) != 1:
         raise ValueError(f"views of several sizes {sorted(sizes)}: calibrate each size separately")
-    corners = [find_corners(im, pattern) for im in images]
     return calibrate(corners, pattern, square_m, sizes.pop(), min_views, model)
 
 
 def against_nominal(lens, focal_equiv_mm):
-    """Measured fx against the nominal f/p at this width: {nominal_fp, fx, diff_pct}."""
+    """Measured fx against the nominal f/p at this width: {nominal_fp, fx, fy, diff_pct}."""
     nom = nominal_fp(lens.size[0], focal_equiv_mm)
     return {"nominal_fp": nom, "fx": lens.fx, "fy": lens.fy, "diff_pct": 100.0 * (lens.fx - nom) / nom}
 
@@ -65,16 +73,23 @@ def views_path(folder, size):
     return os.path.join(folder, f"views_{size[0]}x{size[1]}.json")
 
 
-def save_views(views, folder, size):
+def save_views(views, folder, size, focal_equiv_mm=None):
     """The captured corner sets, so a restarted page (or a refit) keeps them."""
     os.makedirs(folder, exist_ok=True)
     with open(views_path(folder, size), "w") as f:
-        json.dump([np.asarray(v, np.float64).reshape(-1, 2).tolist() for v in views], f)
+        json.dump({"focal_equiv_mm": focal_equiv_mm,
+                   "views": [np.asarray(v, np.float64).reshape(-1, 2).tolist() for v in views]}, f)
 
 
-def load_views(folder, size):
+def load_views(folder, size, focal_equiv_mm=None):
+    """The views captured at this size and focal length (a list: a file from before focal was recorded)."""
     path = views_path(folder, size)
     if not os.path.exists(path):
         return []
     with open(path) as f:
-        return [np.asarray(v, np.float32).reshape(-1, 1, 2) for v in json.load(f)]
+        data = json.load(f)
+    if isinstance(data, list):
+        data = {"focal_equiv_mm": None, "views": data}
+    if not same_focal(data["focal_equiv_mm"], focal_equiv_mm):
+        return []
+    return [np.asarray(v, np.float32).reshape(-1, 1, 2) for v in data["views"]]

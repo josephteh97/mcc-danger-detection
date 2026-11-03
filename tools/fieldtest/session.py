@@ -4,17 +4,16 @@ with the same clicks gives the same log as the live run."""
 from __future__ import annotations
 
 import json
-import math
 import os
 
 import numpy as np
 
+from tools.fieldtest import lens as ln
 from tools.fieldtest import load_phone, nominal_fp
 from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
 from tools.fieldtest import pose as ps
 from tools.fieldtest.calib import against_nominal
-from tools.fieldtest.lens import FieldLens
 
 
 def new(size, source="", preset="default", phone=None, **settings):
@@ -24,6 +23,14 @@ def new(size, source="", preset="default", phone=None, **settings):
     return {"source": source, "size": list(size), "preset": preset, "focal_equiv_mm": p["focal_equiv_mm"],
             "rho": p["rho"], "taped_height_m": p.get("height_m"), "lens": None, "cones": [],
             "measurements": [], "sensors": None, "pass": phone["pass"]}
+
+
+def load_saved_lens(session, folder):
+    """The session with the lens calibrated at its frame size and focal length, if `folder` has one."""
+    lens = ln.load(folder, session["size"], session["focal_equiv_mm"])
+    if lens:
+        session["lens"] = lens.to_dict()
+    return session
 
 
 def save(session, path):
@@ -41,20 +48,19 @@ def load(path):
 def lens_of(session):
     """The calibrated lens if the session has one, else the nominal pinhole at the received size."""
     if session.get("lens"):
-        return FieldLens.from_dict(session["lens"])
+        return ln.FieldLens.from_dict(session["lens"])
     size = session["size"]
-    return FieldLens.pinhole(size, nominal_fp(size[0], session["focal_equiv_mm"]))
+    return ln.FieldLens.pinhole(size, nominal_fp(size[0], session["focal_equiv_mm"]))
 
 
 def zone_of(session, lens):
     return ov.zone(lens.fx, lens.size[0], lens.size[1], session["rho"])
 
 
-def camera_of(session, lens=None):
+def camera_of(session, lens):
     """The solved camera, or until the cones are clicked the camera the layout assumes: at the
     taped height over the origin, aimed at the square's centre."""
-    lens = lens or lens_of(session)
-    if len(session["cones"]) >= 4:
+    if len(session["cones"]) >= ps.MIN_CONES:
         return ps.solve([(c["x"], c["y"]) for c in session["cones"]], [(c["u"], c["v"]) for c in session["cones"]], lens)
     return {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
 
@@ -68,7 +74,7 @@ def evaluate(session):
     pose = camera_of(session, lens)
     cam = pose["camera"]
     out["pose"] = ps.summary(pose)
-    if pose.get("solved", True):
+    if pose["solved"]:
         ok = pose["max_reproj_px"] <= band["pose_reproj_px"]
         if session.get("taped_height_m") is not None:
             ok = ok and abs(pose["height_m"] - session["taped_height_m"]) <= band["pose_height_m"]
@@ -80,13 +86,15 @@ def evaluate(session):
     out["layout"] = ov.layout(z)
     out["corners"] = ov.corner_table(cam, z)
     out["box"] = ov.zone_box(cam, z)
-    out["overlay"] = overlay_check(session, cam, z, band["overlay_pct_of_width"])
-    out["steps"]["overlay"] = out["overlay"]["ok"]
-    out["measurements"] = [ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),
-                                      band["density_pct"], band["density_floor_px"]) for m in session["measurements"]]
-    out["steps"]["density"] = all(r["result"] == "PASS" for r in out["measurements"]) if out["measurements"] else None
-    if session.get("sensors"):
-        out["sensors"] = session["sensors"]
+    overlay = overlay_check(session, cam, z, band["overlay_pct_of_width"])
+    rows = [ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),
+                       band["density_pct"], band["density_floor_px"]) for m in session["measurements"]]
+    if not pose["solved"]:                       # the aimed camera is a preview: nothing to judge against it
+        overlay = {"rows": [{**r, "ok": None} for r in overlay["rows"]], "ok": None}
+        rows = [{**r, "result": ms.NOT_RUN} for r in rows]
+    out["overlay"], out["measurements"] = overlay, rows
+    out["steps"]["overlay"] = overlay["ok"]
+    out["steps"]["density"] = all(r["result"] == "PASS" for r in rows) if rows and pose["solved"] else None
     if session.get("sweep"):                     # reliable down to the twin's 100 px box
         p90 = session["sweep"].get("point_90")
         out["steps"]["detection"] = p90 is None or p90["box_h_px"] <= 100
@@ -95,8 +103,7 @@ def evaluate(session):
 
 def overlay_check(session, cam, z, pct):
     """Each cone named after a square corner, against the drawn corner (within pct of the width)."""
-    corners, _ = ov.square(z, cam.pos[:2], math.degrees(math.atan2(cam.R[2][0], cam.R[2][1])))
-    named = dict(zip(("far left", "far right", "near right", "near left"), corners))
+    named = dict(zip(ov.CORNERS, ov.camera_square(cam, z)[0]))
     rows = []
     for c in session["cones"]:
         if c.get("name") in named:

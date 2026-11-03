@@ -119,7 +119,8 @@ A saved calibration stays, and so do the captured views (until **Clear views**).
 **Moving the phone after calibrating is fine:** the calibration describes the lens, not where the
 phone stands; the markers give the new position. Keep the same resolution (720p), zoom 1×, main
 camera, landscape the same way round and stabilisation off. If any of these changes, calibrate
-again.
+again. A calibration only applies at the focal length it was made at (the page's **focal** box):
+at another one the tool goes back to the nominal lens.
 
 **Before the markers are clicked** the page draws the square for a phone at the taped height
 aimed at the square's centre, and says "pose not solved" on the picture. It only lands on the
@@ -200,7 +201,8 @@ cross on the centre marker.
 
 ## 6. Density check (optional)
 
-This checks ρ: how many pixels a known length takes at a known distance.
+This checks ρ: how many pixels a known length takes at a known distance. Do it after the markers
+are clicked: until the pose is solved, measurements show `not run`, not PASS or FAIL.
 
 1. Stand the 0.5 m stick upright on a marker (for example the centre).
 2. Press **Measure**, set **length** to `0.5` and a **label** (for example `centre`).

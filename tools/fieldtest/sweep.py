@@ -10,40 +10,35 @@ import os
 import cv2
 import numpy as np
 
+from app.alarm import foot_pixel
+
 REFERENCE_PX = (100, 80, 50)
 RATE_OK = 0.9
-
-
-def detector(model, tiles=False, conf=0.25):
-    from app.detect import YoloDetector
-    return YoloDetector(model, conf=conf, tiles=tiles)
 
 
 def run(frames, det, cam, steps, window_m=0.75):
     """frames: iterable of (t, frame). -> {"detections": rows, "steps": rows, "point_90": ...}.
     A step's frame counts as detected when a box's foot lands within window_m of the mark."""
-    dets, per_step = [], {i: [0, 0, [], []] for i in range(len(steps))}   # frames, hits, heights, confidences
+    dets, seen, hits = [], [0] * len(steps), [[] for _ in steps]     # per step: frames, (box height, confidence)
     for t, frame in frames:
         step = next((i for i, (t0, t1, _) in enumerate(steps) if t0 <= t <= t1), None)
         found = False
-        for (x0, y0, x1, y1), conf in det.scored(frame):
-            g = cam.ground_of_pixel((x0 + x1) / 2, y1)
-            dist = math.hypot(g[0] - cam.pos[0], g[1] - cam.pos[1]) if g else float("nan")
-            dets.append({"t": round(t, 3), "step": step, "box_h_px": round(y1 - y0, 1), "confidence": round(conf, 3),
+        for box, conf in det.scored(frame):
+            g = cam.ground_of_pixel(*foot_pixel(box))
+            dist = cam.ground_distance(g) if g else float("nan")
+            h = box[3] - box[1]
+            dets.append({"t": round(t, 3), "step": step, "box_h_px": round(h, 1), "confidence": round(conf, 3),
                          "distance_m": round(dist, 2)})
             if step is not None and abs(dist - steps[step][2]) <= window_m and not found:
                 found = True
-                per_step[step][2].append(y1 - y0)
-                per_step[step][3].append(conf)
+                hits[step].append((h, conf))
         if step is not None:
-            per_step[step][0] += 1
-            per_step[step][1] += found
+            seen[step] += 1
     rows = []
-    for i, (t0, t1, d) in enumerate(steps):
-        n, hits, hs, cs = per_step[i]
-        rows.append({"distance_m": d, "frames": n, "detected": hits, "rate": hits / n if n else float("nan"),
-                     "box_h_px": float(np.median(hs)) if hs else float("nan"),
-                     "confidence": float(np.mean(cs)) if cs else float("nan"),
+    for (_, _, d), n, hit in zip(steps, seen, hits):
+        rows.append({"distance_m": d, "frames": n, "detected": len(hit), "rate": len(hit) / n if n else float("nan"),
+                     "box_h_px": float(np.median([h for h, _ in hit])) if hit else float("nan"),
+                     "confidence": float(np.mean([c for _, c in hit])) if hit else float("nan"),
                      "predicted_h_px": None})
     return {"detections": dets, "steps": rows, "point_90": point_90(rows)}
 
@@ -62,14 +57,13 @@ def point_90(rows):
     return None
 
 
-def write(result, folder, cam=None, person_h_m=1.0):
+def write(result, folder, cam, person_h_m=1.0):
     """steps.csv, detections.csv and sweep.png (rate against distance, box height on the second
     axis, the 100/80/50 px reference heights marked)."""
     os.makedirs(folder, exist_ok=True)
     for r in result["steps"]:
-        if cam is not None:
-            xy = cam.pos[:2] + cam.ground_axes()[0] * r["distance_m"]
-            r["predicted_h_px"] = round(cam.pole_px(xy, person_h_m), 1)
+        xy = cam.pos[:2] + cam.ground_axes()[0] * r["distance_m"]
+        r["predicted_h_px"] = round(cam.pole_px(xy, person_h_m), 1)
     for name, rows in (("steps", result["steps"]), ("detections", result["detections"])):
         with open(os.path.join(folder, f"sweep_{name}.csv"), "w", newline="") as f:
             if rows:

@@ -6,15 +6,15 @@ import math
 import cv2
 import numpy as np
 
-from tools.fieldtest.calib import board_points
+from tools.fieldtest.calib import board_points, find_corners
 from tools.fieldtest.lens import FieldCamera, FieldLens
 
 STREAM = (1440, 1080)
 FP = 957.0
 
 
-def level_camera(height_m=1.5, pitch_deg=0.0, lens=None):
-    return FieldCamera.posed(lens or FieldLens.pinhole(STREAM, FP), height_m, pitch_deg)
+def level_camera(height_m=1.5, pitch_deg=0.0):
+    return FieldCamera.posed(FieldLens.pinhole(STREAM, FP), height_m, pitch_deg)
 
 
 def wide_lens(hfov_deg=102.0, q=0.571, size=(1632, 1224)):
@@ -54,14 +54,18 @@ def render_board(lens, rvec, tvec, pattern=(9, 6), square_m=0.025, ppm=4000):
     return cv2.GaussianBlur(img, (3, 3), 0.6)
 
 
-def board_corners(lens, rvec, tvec, pattern, square_m, rng=None, noise_px=0.0):
-    """The board's inner corners through a (distorted) lens, with optional noise, or None if any
-    falls outside the image."""
+def board_views(lens, n=15, seed=5):
+    """The corners found in n rendered board views, for a pinhole lens (None where not found)."""
+    return [find_corners(render_board(lens, r, t), (9, 6)) for r, t in board_poses(n, np.random.default_rng(seed))]
+
+
+def board_corners(lens, rvec, tvec, pattern, square_m, rng, noise_px):
+    """The board's inner corners through a (distorted) lens, with noise, or None if any falls
+    outside the image."""
     pts, _ = cv2.projectPoints(board_points(pattern, square_m), np.asarray(rvec, np.float64),
                                np.asarray(tvec, np.float64), lens.K, lens.dist)
     pts = pts.reshape(-1, 2)
-    if rng is not None and noise_px:
-        pts = pts + rng.normal(0, noise_px, pts.shape)
+    pts = pts + rng.normal(0, noise_px, pts.shape)
     w, h = lens.size
     if np.any(pts < 0) or np.any(pts[:, 0] >= w) or np.any(pts[:, 1] >= h):
         return None
@@ -89,10 +93,10 @@ def wide_board_views(lens, rng, n=40, pattern=(9, 6), square_m=0.1):
     return views
 
 
-def write_recording(path, cam, seconds=2.0, fps=10, cones=(), poles=(), size=None):
-    """A short video of a grey car park seen by `cam`: a 1 m grid, orange cones at `cones` and
-    1 m poles at `poles` (ground x, y)."""
-    w, h = size or cam.lens.size
+def write_recording(path, cam, seconds=2.0, cones=(), poles=(), size=None):
+    """A short 10 fps video of a grey car park seen by `cam`: a 1 m grid, orange cones at `cones`
+    and 1 m poles at `poles` (ground x, y)."""
+    w, h, fps = *(size or cam.lens.size), 10
     G = np.array([[0.05, 0, -20.0], [0, -0.05, 40.0], [0, 0, 1.0]])            # texture px -> ground m
     tex = np.full((800, 800, 3), 110, np.uint8)
     for i in range(0, 800, 20):

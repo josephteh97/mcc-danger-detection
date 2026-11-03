@@ -9,20 +9,22 @@ import cv2
 
 from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
+from tools.fieldtest import pose as ps
+from tools.fieldtest.lens import FieldLens
 
 PRIVACY = ("Recordings and stills that show people are personal data: delete them once the test is "
            "done, and commit only this summary, never the footage.")
 
 
-def _verdict(v):
+def verdict(v):
     return "not run" if v is None else "PASS" if v else "FAIL"
 
 
 def annotate(frame, session, cam, z):
     """The overlay plus the cone and measurement clicks."""
     img = ov.draw(frame, cam, z)
-    if len(session["cones"]) < 4:
-        ov._label(img, (2, 60), "pose not solved: square drawn for the phone aimed at d. Click 4+ markers", (0, 220, 255))
+    if len(session["cones"]) < ps.MIN_CONES:
+        ov._label(img, (2, 60), f"pose not solved: square drawn for the phone aimed at d. Click {ps.MIN_CONES}+ markers", ov.YELLOW)
     for c in session["cones"]:
         cv2.circle(img, (int(c["u"]), int(c["v"])), 7, (0, 140, 255), 2, cv2.LINE_AA)
         ov._label(img, (c["u"], c["v"] + 18), c.get("name") or f"({c['x']:g}, {c['y']:g})", (0, 140, 255))
@@ -52,35 +54,30 @@ def markdown(session, r):
              f"Source {session['source'] or 'n/a'}, frame {session['size'][0]} × {session['size'][1]}, "
              f"{session['focal_equiv_mm']:g} mm, ρ = {session['rho']:g} px/m, preset {session['preset']}.", "",
              "| Step | Result |", "|---|---|"]
-    lines += [f"| {k} | {_verdict(v)} |" for k, v in s.items()]
-    how = (f"Checkerboard, {lens['views']} views, reprojection {lens['rms']:.3f} px" if lens["source"] != "nominal"
+    lines += [f"| {k} | {verdict(v)} |" for k, v in s.items()]
+    how = (f"Checkerboard, {lens['views']} views, reprojection {lens['rms']:.3f} px" if FieldLens.from_dict(lens).calibrated
            else "Nominal (not calibrated)")
     lines += ["", "## Lens", "",
               f"{how}: fx {nom['fx']:.1f} px, fy {nom['fy']:.1f} px against the nominal {nom['nominal_fp']:.1f} px "
               f"({nom['diff_pct']:+.2f}%).", "", "## Pose", ""]
-    if "height_m" in pose:
+    if pose["solved"]:
         lines.append(f"Height {pose['height_m']:.3f} m (taped {session.get('taped_height_m')}), pitch {pose['pitch_deg']:.2f}°, "
                      f"roll {pose['roll_deg']:.2f}°, heading {pose['heading_deg']:.2f}°; cone reprojection up to "
                      f"{pose['max_reproj_px']:.2f} px.")
-        if r.get("sensors"):
-            lines.append(f"Phone sensors (cross-check): pitch {r['sensors']['pitch_deg']:.1f}°, roll {r['sensors']['roll_deg']:.1f}°.")
+        sensors = session.get("sensors")
+        if sensors:
+            lines.append(f"Phone sensors (cross-check): pitch {sensors['pitch_deg']:.1f}°, roll {sensors['roll_deg']:.1f}°.")
     else:
         lines.append("Not solved (fewer than four cones).")
-    lines += ["", "## Square", "",
-              f"S {z['s']:.2f} m, d {z['d']:.2f} m, z_near {z['near']:.2f} m, z_far {z['z_max']:.2f} m (= z_max), "
-              f"W_max {z['w_max']:.2f} m.", ""]
-    box = r.get("box")
-    if box:
-        u0, v0, u1, v1 = box["box_px"]
-        lines += [f"Bounding box in the image: u {u0:.0f}–{u1:.0f}, v {v0:.0f}–{v1:.0f} px ({box['width_px']:.0f} × "
-                  f"{box['height_px']:.0f} px), {'inside' if box['in_frame'] else 'NOT inside'} the frame"
-                  + ("." if "height_m" in pose else " (camera aimed at the centre, pose not solved)."), ""]
-    lines += [
-              "| Corner | x m | y m | px/m (3D) | px/m (plan) |", "|---|---|---|---|---|"]
+    lines += ["", "## Square", "", f"{ov.zone_text(z)}.", ""]
+    if r.get("box"):
+        lines += [f"Bounding box in the image: {ov.box_text(r['box'])}"
+                  + ("." if pose["solved"] else " (camera aimed at the centre, pose not solved)."), ""]
+    lines += ["| Corner | x m | y m | px/m (3D) | px/m (plan) |", "|---|---|---|---|---|"]
     lines += [f"| {c['corner']} | {c['x']:+.2f} | {c['y']:.2f} | {c['px_per_m_3d']:.1f} | {c['px_per_m_plan']:.1f} |" for c in r["corners"]]
     if r["overlay"]["rows"]:
         lines += ["", "| Cone | Off by px | % of width | |", "|---|---|---|---|"]
-        lines += [f"| {o['corner']} | {o['off_px']:.1f} | {o['off_pct']:.2f} | {_verdict(o['ok'])} |" for o in r["overlay"]["rows"]]
+        lines += [f"| {o['corner']} | {o['off_px']:.1f} | {o['off_pct']:.2f} | {verdict(o['ok'])} |" for o in r["overlay"]["rows"]]
     lines += ["", "## Measurements", "", "| Label | Length m | Distance m | Predicted px | Measured px | Error | |",
               "|---|---|---|---|---|---|---|"]
     lines += [f"| {m['label']} | {m['length_m']:g} | {m['distance_m']:.2f} | {m['predicted_px']:.1f} | {m['measured_px']:.1f} | "

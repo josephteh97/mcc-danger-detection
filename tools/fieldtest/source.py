@@ -13,6 +13,9 @@ import numpy as np
 
 log = logging.getLogger("fieldtest")
 
+REC_NAME = "rec_%H%M%S.mp4"         # time.strftime: a recording's name
+OPEN_TRIES, OPEN_WAIT_S = 5, 2.0    # a phone app restarts its server for a few seconds after a viewer leaves
+
 
 def hide_password(url):
     """rtsp://user:secret@host/... -> rtsp://user:***@host/... (for logs and the page)."""
@@ -46,27 +49,39 @@ class Source:
     """Frames from a stream URL or a recording file. `size` is the size received; a change of size
     during a session is logged in `warnings`."""
 
-    def __init__(self, url, tries=5, wait_s=2.0):
-        self.url, self.shown = url, hide_password(url)
+    def __init__(self, url):
+        self.url, self.shown, self.stream = url, hide_password(url), is_stream(url)
         if str(url).startswith("rtsp://"):          # RTSP over TCP, as app/health.py: UDP is lossy on Wi-Fi
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-        # A phone app restarts its server for a few seconds after a viewer leaves: retry a stream
-        # (not a file) before giving up.
-        for attempt in range(tries if is_stream(url) else 1):
+        self.size, self.warnings, self.frames = None, [], 0
+        self._open()
+
+    def _open(self):
+        """Open the source, retrying a stream (not a file) before giving up."""
+        for attempt in range(OPEN_TRIES if self.stream else 1):
             if attempt:
-                log.warning("cannot open %s, trying again (%d of %d)", self.shown, attempt + 1, tries)
-                time.sleep(wait_s)
-            self.cap = cv2.VideoCapture(url)
+                log.warning("cannot open %s, trying again (%d of %d)", self.shown, attempt + 1, OPEN_TRIES)
+                time.sleep(OPEN_WAIT_S)
+            self.cap = cv2.VideoCapture(self.url)
             if self.cap.isOpened():
                 break
         else:
             hint = (": is the phone app serving, with the screen on? An app that stops after each viewer "
                     "needs ▶ pressed again; close other viewers (ffplay, VLC)"
-                    if is_stream(url) else "")
+                    if self.stream else "")
             raise OSError(f"cannot open {self.shown}{hint}")
-        self.size, self.warnings, self.frames = None, [], 0
         self.file_fps = self.cap.get(cv2.CAP_PROP_FPS) or 0.0
         self.t0 = time.monotonic()
+
+    def reopen(self):
+        """Start again after a dropped stream or the end of a recording; a changed size is still warned."""
+        self.cap.release()
+        self._open()
+
+    def writer(self, path):
+        """A video writer for this source's frames."""
+        fps = self.file_fps if 0 < self.file_fps < 61 else 15.0
+        return cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, tuple(self.size))
 
     def read(self):
         """(frame, t seconds) or (None, None) at the end of a recording."""
@@ -137,15 +152,14 @@ def gravity_angles(g):
 def probe(url, seconds=3.0):
     """Frame size, fps and warnings of a stream."""
     src = Source(url)
-    t0, n = time.monotonic(), 0
+    t0 = time.monotonic()
     try:
         while time.monotonic() - t0 < seconds:
             frame, _ = src.read()
             if frame is None:
                 break
-            n += 1
     finally:
         src.close()
     dt = time.monotonic() - t0
-    return {"url": src.shown, "size": src.size, "fps": round(n / dt, 1) if dt > 0 else 0.0,
-            "frames": n, "warnings": src.warnings}
+    return {"url": src.shown, "size": src.size, "fps": round(src.frames / dt, 1) if dt > 0 else 0.0,
+            "frames": src.frames, "warnings": src.warnings}

@@ -26,9 +26,16 @@ import time
 
 import cv2
 
-from tools.fieldtest import REPORTS, describe_pitch, load_phone, nominal_fp, report_dir
-
-DEFAULT_BIND, DEFAULT_PORT = "127.0.0.1", 8090
+from tools.fieldtest import REPORTS, describe_pitch, load_phone, report_dir
+from tools.fieldtest import calib as cb
+from tools.fieldtest import distortion as dz
+from tools.fieldtest import lens as ln
+from tools.fieldtest import measure as ms
+from tools.fieldtest import overlay as ov
+from tools.fieldtest import report as rp
+from tools.fieldtest import session as ss
+from tools.fieldtest import source as src
+from tools.fieldtest import sweep as sw
 
 
 def _size(text):
@@ -37,8 +44,7 @@ def _size(text):
 
 
 def _frame_at(path, index=0):
-    from tools.fieldtest.source import Source
-    s = Source(path)
+    s = src.Source(path)
     try:
         for i, (_, frame) in enumerate(s):
             if i >= index:
@@ -48,71 +54,76 @@ def _frame_at(path, index=0):
     raise ValueError(f"{path} has fewer than {index + 1} frames")
 
 
-def _lens_for(size, focal_equiv_mm):
-    """The lens calibrated at this size if there is one, else the nominal pinhole (and which)."""
-    from tools.fieldtest import lens as ln
-    lens = ln.load(REPORTS, size)
-    if lens is not None:
-        return lens, f"calibrated lens: fx {lens.fx:.1f} px ({os.path.basename(ln.calib_path(REPORTS, size))})"
-    return ln.FieldLens.pinhole(size, nominal_fp(size[0], focal_equiv_mm)), "nominal lens (not calibrated at this size)"
+def _preset_session(a, phone):
+    """A session for `layout` and `zone` before the test: the preset, its overrides and the saved lens."""
+    size = a.size or phone["presets"][a.preset]["frame_px"]
+    session = ss.new(size, preset=a.preset, phone=phone, rho=a.rho, focal_equiv_mm=a.focal, height_m=getattr(a, "height", None))
+    return ss.load_saved_lens(session, REPORTS)
+
+
+def _which_lens(lens):
+    if lens.calibrated:
+        return f"calibrated lens: fx {lens.fx:.1f} px ({os.path.basename(ln.calib_path(REPORTS, lens.size))})"
+    return "nominal lens (not calibrated at this size and focal length)"
+
+
+def _images(pattern):
+    return (cv2.imread(p) for p in sorted(glob.glob(pattern)))
 
 
 def build_parser():
     ap = argparse.ArgumentParser(prog="python3 -m tools.fieldtest", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    def cmd(name, help_):
-        p = sub.add_parser(name, help=help_)
-        return p
-
-    p = cmd("probe", "frame size, fps and shape warnings of the stream")
+    p = sub.add_parser("probe", help="frame size, fps and shape warnings of the stream")
     p.add_argument("--url")
     p.add_argument("--seconds", type=float, default=3.0)
-    p = cmd("serve", "the field-test page")
+    p = sub.add_parser("serve", help="the field-test page")
     p.add_argument("--url")
     p.add_argument("--file", help="a recording instead of the live stream (loops)")
-    p.add_argument("--bind", default=DEFAULT_BIND, help="address to listen on (default 127.0.0.1: this PC only)")
-    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--bind", default="127.0.0.1", help="address to listen on (default 127.0.0.1: this PC only)")
+    p.add_argument("--port", type=int, default=8090)
     p.add_argument("--preset", default="default")
     p.add_argument("--rho", type=float)
-    p = cmd("record", "record the stream to reports/fieldtest/<date>/")
+    p = sub.add_parser("record", help="record the stream to reports/fieldtest/<date>/")
     p.add_argument("--url")
     p.add_argument("--seconds", type=float, default=60.0)
     p.add_argument("--out")
-    p = cmd("calibrate", "checkerboard calibration at one image size")
+    p = sub.add_parser("calibrate", help="checkerboard calibration at one image size")
     p.add_argument("--file")
     p.add_argument("--images")
     p.add_argument("--every", type=int, default=10, help="use every n-th frame of a recording")
     p.add_argument("--focal", type=float, help="equivalent focal length for the nominal comparison")
-    p = cmd("layout", "the cone layout sheet")
-    p.add_argument("--preset", default="default")
-    p.add_argument("--rho", type=float)
-    p.add_argument("--size", type=_size)
-    p.add_argument("--focal", type=float)
-    p = cmd("zone", "S, d, z_near, z_far and the square's bounding box in the image")
-    p.add_argument("--session", help="use the session's calibrated lens and solved pose")
-    p.add_argument("--preset", default="default")
-    p.add_argument("--rho", type=float)
-    p.add_argument("--size", type=_size)
-    p.add_argument("--focal", type=float)
-    p.add_argument("--height", type=float, help="phone height, m (default: the preset's)")
-    for name, help_ in (("pose", "solve the pose from the session's cones"),
-                        ("overlay", "draw the overlay on a frame of a recording"),
-                        ("measure", "the measurement log from the session's clicks"),
-                        ("sweep", "detection sweep on a recording"),
-                        ("report", "write the report")):
-        p = cmd(name, help_)
+    layout = sub.add_parser("layout", help="the cone layout sheet")
+    zone = sub.add_parser("zone", help="S, d, z_near, z_far and the square's bounding box in the image")
+    for p in (layout, zone):
+        p.add_argument("--preset", default="default")
+        p.add_argument("--rho", type=float)
+        p.add_argument("--size", type=_size)
+        p.add_argument("--focal", type=float)
+    zone.add_argument("--session", help="use the session's calibrated lens and solved pose")
+    zone.add_argument("--height", type=float, help="phone height, m (default: the preset's)")
+
+    pose = sub.add_parser("pose", help="solve the pose from the session's cones")
+    overlay = sub.add_parser("overlay", help="draw the overlay on a frame of a recording")
+    measure = sub.add_parser("measure", help="the measurement log from the session's clicks")
+    sweep = sub.add_parser("sweep", help="detection sweep on a recording")
+    report = sub.add_parser("report", help="write the report")
+    for p in (pose, overlay, measure, sweep, report):
         p.add_argument("--session", required=True)
-        if name in ("overlay", "sweep", "report"):
-            p.add_argument("--file", required=name != "report")
-            p.add_argument("--frame", type=int, default=0)
+    for p in (overlay, measure, sweep, report):
         p.add_argument("--out")
-        if name == "sweep":
-            p.add_argument("--model", required=True, help="person-detector ONNX, as the app's yolo mode")
-            p.add_argument("--steps", required=True, help="CSV: t0,t1,distance_m (when the person was at each mark)")
-            p.add_argument("--tiles", action="store_true")
-            p.add_argument("--height", type=float, default=1.0, help="person height for the prediction, m")
-    p = cmd("distortion", "ultra-wide distortion test from photos")
+    for p in (overlay, report):
+        p.add_argument("--frame", type=int, default=0)
+    overlay.add_argument("--file", required=True)
+    report.add_argument("--file")
+    sweep.add_argument("--file", required=True)
+    sweep.add_argument("--model", required=True, help="person-detector ONNX, as the app's yolo mode")
+    sweep.add_argument("--steps", required=True, help="CSV: t0,t1,distance_m (when the person was at each mark)")
+    sweep.add_argument("--tiles", action="store_true")
+    sweep.add_argument("--height", type=float, default=1.0, help="person height for the prediction, m")
+
+    p = sub.add_parser("distortion", help="ultra-wide distortion test from photos")
     p.add_argument("--images", required=True)
     p.add_argument("--pole-centre", help="u1,v1,u2,v2: the 1 m pole at the centre")
     p.add_argument("--pole-edge", help="u1,v1,u2,v2: the same pole near the edge, same depth")
@@ -127,7 +138,6 @@ def server_config(args, app):
 def main(argv=None):
     a = build_parser().parse_args(argv)
     phone = load_phone()
-    from tools.fieldtest import source as src
     url = getattr(a, "url", None) or phone["stream_url"]
 
     if a.cmd == "probe":
@@ -140,6 +150,7 @@ def main(argv=None):
 
     if a.cmd == "serve":
         import uvicorn
+
         from tools.fieldtest.web import Live, make_app
         live = Live(a.file or url, a.preset, a.rho, loop=bool(a.file))
         for w in live.src.warnings:
@@ -151,8 +162,8 @@ def main(argv=None):
     if a.cmd == "record":
         s = src.Source(url)
         frame, _ = s.read()
-        out = a.out or os.path.join(report_dir(), time.strftime("rec_%H%M%S.mp4"))
-        w = cv2.VideoWriter(out, cv2.VideoWriter_fourcc(*"mp4v"), s.file_fps if 0 < s.file_fps < 61 else 15.0, s.size)
+        out = a.out or os.path.join(report_dir(), time.strftime(src.REC_NAME))
+        w = s.writer(out)
         t0 = time.monotonic()
         while frame is not None and time.monotonic() - t0 < a.seconds:
             w.write(frame)
@@ -163,16 +174,14 @@ def main(argv=None):
         return 0
 
     if a.cmd == "calibrate":
-        from tools.fieldtest import calib as cb
-        from tools.fieldtest import lens as ln
-        b = phone["checkerboard"]
         if a.images:
-            images = [cv2.imread(p) for p in sorted(glob.glob(a.images))]
+            images = _images(a.images)
         else:
-            images = [f for i, (_, f) in enumerate(src.Source(a.file)) if i % a.every == 0]
-        lens = cb.calibrate_images(images, b["inner_corners"], b["square_mm"] / 1000, b["min_views"])
-        path = ln.save(lens, REPORTS)
-        n = cb.against_nominal(lens, a.focal or phone["main"]["focal_equiv_mm"])
+            images = (f for i, (_, f) in enumerate(src.Source(a.file)) if i % a.every == 0)
+        focal = a.focal or phone["main"]["focal_equiv_mm"]
+        lens = cb.calibrate_images(images, *cb.board_settings(phone))
+        path = ln.save(lens, REPORTS, focal)
+        n = cb.against_nominal(lens, focal)
         print(f"{lens.views} views at {lens.size[0]} × {lens.size[1]}: reprojection {lens.rms:.3f} px "
               f"({'PASS' if lens.rms <= phone['pass']['lens_rms_px'] else 'FAIL'}, at most {phone['pass']['lens_rms_px']} px)")
         print(f"fx {n['fx']:.1f} px, fy {n['fy']:.1f} px against nominal f/p {n['nominal_fp']:.1f} px ({n['diff_pct']:+.2f}%)")
@@ -180,38 +189,35 @@ def main(argv=None):
         print(f"saved {path}")
         return 0
 
+    if a.cmd == "distortion":
+        lens = cb.calibrate_images(_images(a.images), *cb.board_settings(phone), model="wide")
+        c = dz.compare(lens)
+        print(f"{lens.views} views, reprojection {lens.rms:.3f} px")
+        print(dz.describe(c))
+        if a.pole_centre and a.pole_edge:
+            pc, pe = ([float(v) for v in s.split(",")] for s in (a.pole_centre, a.pole_edge))
+            edge_u = abs(lens.undistort([[pe[0], (pe[1] + pe[3]) / 2]])[0, 0] - lens.cx) / lens.fx
+            r = dz.pole_ratio(math.dist(pc[:2], pc[2:]), math.dist(pe[:2], pe[2:]), edge_u, c["D"])
+            print(f"pole edge/centre: measured {r['measured']:.3f}, twin model 1 − D·u² {r['model']:.3f} (u = {edge_u:.3f})")
+        return 0
+
+    path = getattr(a, "session", None)
+    session = ss.load(path) if path else _preset_session(a, phone)
+    result, cam, z = ss.evaluate(session)
+
     if a.cmd == "layout":
-        from tools.fieldtest import overlay as ov
-        p = dict(phone["presets"][a.preset])
-        size = a.size or tuple(p["frame_px"])
-        lens, which = _lens_for(size, a.focal or p["focal_equiv_mm"])
-        print(describe_pitch(phone, size[0], a.focal or p["focal_equiv_mm"]))
-        print("using the", which)
-        sheet = ov.layout(ov.zone(lens.fx, size[0], size[1], a.rho or p["rho"]))
-        print(ov.describe_layout(sheet))
+        print(describe_pitch(phone, session["size"][0], session["focal_equiv_mm"]))
+        print("using the", _which_lens(cam.lens))
+        print(ov.describe_layout(result["layout"]))
         out = os.path.join(report_dir(), f"layout_{a.preset}.json")
         with open(out, "w") as f:
-            json.dump(sheet, f, indent=1)
+            json.dump(result["layout"], f, indent=1)
         print(f"saved {out}")
         return 0
 
-    if a.cmd == "zone" and not a.session:      # before the test: phone aimed at the centre
-        from tools.fieldtest import overlay as ov
-        p = dict(phone["presets"][a.preset])
-        size = a.size or tuple(p["frame_px"])
-        lens, which = _lens_for(size, a.focal or p["focal_equiv_mm"])
-        print("using the", which)
-        z = ov.zone(lens.fx, size[0], size[1], a.rho or p["rho"])
-        cam = ov.aimed(lens, z, a.height or p["height_m"])
-        print(ov.describe_zone(z, ov.zone_box(cam, z), cam))
-        return 0
-
-    from tools.fieldtest import session as ss
-    session = ss.load(a.session)
-    result, cam, z = ss.evaluate(session)
-
     if a.cmd == "zone":
-        from tools.fieldtest import overlay as ov
+        if not path:                             # before the test: the phone aimed at the centre
+            print("using the", _which_lens(cam.lens))
         print(ov.describe_zone(z, result["box"], cam))
         return 0
 
@@ -220,7 +226,6 @@ def main(argv=None):
         return 0 if result["steps"]["pose"] is not False else 1
 
     if a.cmd == "overlay":
-        from tools.fieldtest import report as rp
         out = a.out or os.path.join(report_dir(), "overlay.png")
         cv2.imwrite(out, rp.annotate(_frame_at(a.file, a.frame), session, cam, z))
         for c in result["corners"]:
@@ -229,7 +234,6 @@ def main(argv=None):
         return 0
 
     if a.cmd == "measure":
-        from tools.fieldtest import measure as ms
         out = a.out or os.path.join(os.path.dirname(os.path.abspath(a.session)), "measurements.csv")
         ms.write_csv(result["measurements"], out)
         for m in result["measurements"]:
@@ -239,10 +243,10 @@ def main(argv=None):
         return 0 if result["steps"]["density"] is not False else 1
 
     if a.cmd == "sweep":
-        from tools.fieldtest import sweep as sw
+        from app.detect import YoloDetector
         with open(a.steps) as f:
             steps = [(float(r["t0"]), float(r["t1"]), float(r["distance_m"])) for r in csv.DictReader(f)]
-        r = sw.run(src.Source(a.file), sw.detector(a.model, a.tiles), cam, steps)
+        r = sw.run(src.Source(a.file), YoloDetector(a.model, conf=0.25, tiles=a.tiles), cam, steps)
         folder = sw.write(r, a.out or os.path.dirname(os.path.abspath(a.session)), cam, a.height)
         session["sweep"] = {"point_90": r["point_90"]}
         ss.save(session, a.session)
@@ -252,28 +256,11 @@ def main(argv=None):
         return 0
 
     if a.cmd == "report":
-        from tools.fieldtest import report as rp
         frame = _frame_at(a.file, a.frame) if a.file else None
         folder = a.out or os.path.dirname(os.path.abspath(a.session))
-        path = rp.write(session, result, cam, z, folder, frame)
-        print("\n".join(f"{k}: {'not run' if v is None else 'PASS' if v else 'FAIL'}" for k, v in result["steps"].items()))
-        print(f"saved {path}")
-        return 0
-
-    if a.cmd == "distortion":
-        from tools.fieldtest import calib as cb
-        from tools.fieldtest import distortion as dz
-        b = phone["checkerboard"]
-        lens = cb.calibrate_images([cv2.imread(p) for p in sorted(glob.glob(a.images))], b["inner_corners"],
-                                   b["square_mm"] / 1000, b["min_views"], model="wide")
-        c = dz.compare(lens)
-        print(f"{lens.views} views, reprojection {lens.rms:.3f} px")
-        print(dz.describe(c))
-        if a.pole_centre and a.pole_edge:
-            pc, pe = ([float(v) for v in s.split(",")] for s in (a.pole_centre, a.pole_edge))
-            edge_u = abs(lens.undistort([[pe[0], (pe[1] + pe[3]) / 2]])[0, 0] - lens.cx) / lens.fx
-            r = dz.pole_ratio(math.dist(pc[:2], pc[2:]), math.dist(pe[:2], pe[2:]), edge_u, c["D"])
-            print(f"pole edge/centre: measured {r['measured']:.3f}, twin model 1 − D·u² {r['model']:.3f} (u = {edge_u:.3f})")
+        report_path = rp.write(session, result, cam, z, folder, frame)
+        print("\n".join(f"{k}: {rp.verdict(v)}" for k, v in result["steps"].items()))
+        print(f"saved {report_path}")
         return 0
     return 1
 

@@ -20,6 +20,10 @@ KNOWN_FAIL = {"V11": "second finding: fit a second battery or 1,000 W of panels,
 CHECKS = []      # (id, title, function) registered by the @check decorator
 
 
+def near(value, target, tol):
+    return abs(value - target) <= tol
+
+
 def check(cid, title):
     def deco(fn):
         CHECKS.append((cid, title, fn))

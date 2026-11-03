@@ -3,17 +3,23 @@ clicked through its API, replayed from the saved session; the sweep, report and 
 import json
 import os
 
+import cv2
 import numpy as np
 import pytest
 from fakes import fieldtest_synth as syn
 from fastapi.testclient import TestClient
 
+import tools.fieldtest.__main__ as cli
 from tools import fieldtest as ft
+from tools.fieldtest import calib as cb
+from tools.fieldtest import lens as ln
 from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
+from tools.fieldtest import report as rp
 from tools.fieldtest import session as ss
 from tools.fieldtest import source as src
 from tools.fieldtest import sweep as sw
+from tools.fieldtest import web
 from tools.fieldtest.__main__ import main
 
 CONES = {"far left": (-2.87, 9.57), "far right": (2.87, 9.57), "near right": (2.87, 3.82), "near left": (-2.87, 3.82)}
@@ -23,14 +29,9 @@ POLES = [(2.87, 9.57), (0.0, 6.69), (-2.87, 3.82)]
 @pytest.fixture()
 def reports(tmp_path, monkeypatch):
     """Reports go to a temporary folder, not reports/fieldtest/."""
-    import tools.fieldtest.web as web
-    monkeypatch.setattr(ft, "REPORTS", str(tmp_path))
-    monkeypatch.setattr(web, "REPORTS", str(tmp_path))
-    monkeypatch.setattr(ft, "report_dir", lambda date=None: str(tmp_path))
-    monkeypatch.setattr(web, "report_dir", lambda date=None: str(tmp_path))
-    import tools.fieldtest.__main__ as cli
-    monkeypatch.setattr(cli, "report_dir", lambda date=None: str(tmp_path))
-    monkeypatch.setattr(cli, "REPORTS", str(tmp_path))
+    for module in (web, cli):
+        monkeypatch.setattr(module, "REPORTS", str(tmp_path))
+        monkeypatch.setattr(module, "report_dir", lambda date=None: str(tmp_path))
     return tmp_path
 
 
@@ -40,28 +41,29 @@ def recording(tmp_path):
     return str(syn.write_recording(tmp_path / "rec.mp4", cam, cones=CONES.values(), poles=POLES)), cam
 
 
-def test_live_clicks_replay_to_the_same_log(reports, recording, capsys):
-    path, cam = recording
-    from tools.fieldtest.web import Live, make_app
-    live = Live(path, loop=True)
-    try:
-        client = TestClient(make_app(live))
-        assert client.get("/").status_code == 200
-        for name, (x, y) in CONES.items():
-            (u, v), = cam.image_points([[x, y, 0.0]])[0]
-            assert client.post("/api/cone", json={"u": u, "v": v, "x": x, "y": y, "name": name}).status_code == 200
-        for i, (x, y) in enumerate(POLES):
-            b, t = cam.image_points([[x, y, 0.0], [x, y, 1.0]])[0]
-            r = client.post("/api/measure", json={"bottom": list(b), "top": list(t + [0, -1.5]), "length_m": 1, "label": f"pole {i}"})
-            assert r.status_code == 200
-        state = client.get("/api/state").json()
-        assert state["steps"]["pose"] and state["steps"]["overlay"] and state["steps"]["density"]
-        assert abs(state["pose"]["height_m"] - 1.5) < 0.01 and state["size"] == [1440, 1080]
-        live_log = state["measurements"]
-        report = client.post("/api/report").json()["report"]
-    finally:
-        live.stop = True
-    text = open(report).read()
+@pytest.fixture()
+def live(reports, recording):
+    live = web.Live(recording[0], loop=True)
+    yield live
+    live.stop = True
+
+
+def test_live_clicks_replay_to_the_same_log(reports, recording, live):
+    _, cam = recording
+    client = TestClient(web.make_app(live))
+    assert client.get("/").status_code == 200
+    for name, (x, y) in CONES.items():
+        (u, v), = cam.image_points([[x, y, 0.0]])[0]
+        assert client.post("/api/cone", json={"u": u, "v": v, "x": x, "y": y, "name": name}).status_code == 200
+    for i, (x, y) in enumerate(POLES):
+        b, t = cam.image_points([[x, y, 0.0], [x, y, 1.0]])[0]
+        r = client.post("/api/measure", json={"bottom": list(b), "top": list(t + [0, -1.5]), "length_m": 1, "label": f"pole {i}"})
+        assert r.status_code == 200
+    state = client.get("/api/state").json()
+    assert state["steps"]["pose"] and state["steps"]["overlay"] and state["steps"]["density"]
+    assert abs(state["pose"]["height_m"] - 1.5) < 0.01 and state["size"] == [1440, 1080]
+    live_log = state["measurements"]
+    text = open(client.post("/api/report").json()["report"]).read()
     assert "| density | PASS |" in text and "delete them" in text
     assert os.path.exists(os.path.join(reports, "overlay.png"))
     # replay: the CLI rebuilds the log from the saved session only
@@ -72,16 +74,10 @@ def test_live_clicks_replay_to_the_same_log(reports, recording, capsys):
     assert open(out).read() == open(live_csv).read()
 
 
-def test_bad_click_is_refused_not_logged(reports, recording):
-    path, _ = recording
-    from tools.fieldtest.web import Live, make_app
-    live = Live(path, loop=True)
-    try:
-        client = TestClient(make_app(live))
-        r = client.post("/api/measure", json={"bottom": [700, 10], "top": [700, 0], "length_m": 1})
-        assert r.status_code == 400 and not live.session["measurements"]
-    finally:
-        live.stop = True
+def test_bad_click_is_refused_not_logged(live):
+    client = TestClient(web.make_app(live))
+    r = client.post("/api/measure", json={"bottom": [700, 10], "top": [700, 0], "length_m": 1})
+    assert r.status_code == 400 and not live.session["measurements"]
 
 
 def test_sixteen_nine_recording_warned(tmp_path):
@@ -90,6 +86,11 @@ def test_sixteen_nine_recording_warned(tmp_path):
     s = src.Source(str(path))
     s.read()
     assert s.size == (1920, 1080) and "16:9" in s.warnings[0]
+    while s.read()[0] is not None:
+        pass
+    s.reopen()                                     # as the page does after a dropped stream
+    assert s.read()[0] is not None
+    assert s.size == (1920, 1080) and len(s.warnings) == 1 and "16:9" in s.warnings[0]
     s.close()
 
 
@@ -133,8 +134,7 @@ def test_tilted_overlay_drifts_from_plan_view():
     rows = ov.corner_table(cam, ov.zone(syn.FP, 1440, 1080, 100))
     drift = {r["corner"]: r["px_per_m_plan"] - r["px_per_m_3d"] for r in rows}  # plan view drifts when tilted
     assert 0.1 < drift["far left"] < 1 and drift["near left"] > 5
-    session = ss.new((1440, 1080))
-    result, _, _ = ss.evaluate(session)
+    result, _, _ = ss.evaluate(ss.new(syn.STREAM))
     assert result["steps"]["pose"] is None and result["steps"]["lens"] is None
 
 
@@ -159,10 +159,9 @@ def test_zone_box_corridor(reports, capsys):
 
 
 def test_session_reports_the_box():
-    result, _, _ = ss.evaluate(ss.new((1440, 1080)))
+    result, _, _ = ss.evaluate(ss.new(syn.STREAM))
     assert result["box"]["in_frame"]
-    from tools.fieldtest import report as rp
-    assert "Bounding box in the image" in rp.markdown(ss.new((1440, 1080)), result)
+    assert "Bounding box in the image" in rp.markdown(ss.new(syn.STREAM), result)
 
 
 def test_local_file_keeps_the_login_out_of_the_repo(tmp_path):
@@ -175,8 +174,6 @@ def test_local_file_keeps_the_login_out_of_the_repo(tmp_path):
 
 def test_saved_calibration_drives_layout_and_views_survive(reports, capsys):
     """layout/zone use the lens calibrated at that size; captured views are kept on disk."""
-    from tools.fieldtest import calib as cb
-    from tools.fieldtest import lens as ln
     ln.save(ln.FieldLens((1280, 720), 901.3, 900.7, 640, 360, rms=0.25, views=20, source="checkerboard"), str(reports))
     assert main(["zone", "--preset", "corridor"]) == 0
     out = capsys.readouterr().out
@@ -187,10 +184,71 @@ def test_saved_calibration_drives_layout_and_views_survive(reports, capsys):
 
 
 def test_main_camera_fit_keeps_k3_and_tangential_at_zero():
-    from tools.fieldtest.calib import calibrate, find_corners
-    from tools.fieldtest.lens import FieldLens
-    true = FieldLens.pinhole((1440, 1080), syn.FP)
-    rng = np.random.default_rng(5)
-    corners = [find_corners(syn.render_board(true, r, t), (9, 6)) for r, t in syn.board_poses(15, rng)]
-    lens = calibrate(corners, (9, 6), 0.025, (1440, 1080))
+    corners = syn.board_views(ln.FieldLens.pinhole(syn.STREAM, syn.FP))
+    lens = cb.calibrate(corners, (9, 6), 0.025, syn.STREAM)
     assert lens.dist[2] == lens.dist[3] == lens.dist[4] == 0.0 and abs(lens.fx - syn.FP) / syn.FP < 0.005
+
+
+def test_distortion_runs_from_the_command_line(tmp_path, capsys):
+    """The full fit from board photos, through main(): it needs no session."""
+    lens = ln.FieldLens.pinhole(syn.STREAM, syn.FP)
+    for i, (r, t) in enumerate(syn.board_poses(15, np.random.default_rng(5))):
+        cv2.imwrite(str(tmp_path / f"{i:02d}.png"), syn.render_board(lens, r, t))
+    assert main(["distortion", "--images", str(tmp_path / "*.png")]) == 0
+    out = capsys.readouterr().out
+    assert "ultra-wide: HFOV" in out and "image edge" in out
+
+
+def test_nothing_is_judged_without_a_pose():
+    """Rows and clicks stay visible, but no PASS or FAIL until the pose is solved."""
+    cam = syn.level_camera(1.5, 10.0)
+    session = ss.new(syn.STREAM)
+    b, t = cam.image_points([[0.0, 6.0, 0.0], [0.0, 6.0, 1.0]])[0]
+    session["measurements"] = [{"label": "pole", "length_m": 1, "bottom": list(map(float, b)), "top": list(map(float, t))}]
+    pts = {"far left": CONES["far left"], "far right": CONES["far right"]}
+    uv, _ = cam.image_points([[x, y, 0.0] for x, y in pts.values()])
+    session["cones"] = [{"name": n, "x": x, "y": y, "u": float(u), "v": float(v)} for (n, (x, y)), (u, v) in zip(pts.items(), uv)]
+    result, _, _ = ss.evaluate(session)
+    assert result["steps"]["pose"] is None and result["steps"]["overlay"] is None and result["steps"]["density"] is None
+    assert result["measurements"][0]["result"] == "not run" and result["measurements"][0]["predicted_px"] > 0
+    assert len(result["overlay"]["rows"]) == 2 and all(r["ok"] is None for r in result["overlay"]["rows"])
+    text = rp.markdown(session, result)
+    assert "| density | not run |" in text and "| overlay | not run |" in text and "PASS" not in text and "FAIL" not in text
+
+
+def test_saved_lens_and_views_belong_to_their_focal_length(reports, capsys):
+    lens = ln.FieldLens((1280, 720), 901.3, 900.7, 640, 360, rms=0.25, views=20, source="checkerboard")
+    ln.save(lens, str(reports), 23)
+    assert ln.load(str(reports), (1280, 720), 23).fx == 901.3 and ln.load(str(reports), (1280, 720), 28) is None
+    assert main(["layout", "--preset", "corridor", "--focal", "28"]) == 0
+    assert "nominal lens" in capsys.readouterr().out
+    assert main(["zone", "--preset", "corridor"]) == 0
+    assert "calibrated lens: fx 901.3" in capsys.readouterr().out
+    views = [np.full((54, 1, 2), 1, np.float32)]
+    cb.save_views(views, str(reports), (1280, 720), 23)
+    assert len(cb.load_views(str(reports), (1280, 720), 23)) == 1 and cb.load_views(str(reports), (1280, 720), 28) == []
+
+
+def test_files_from_before_focal_was_recorded_still_load(reports):
+    """Calibration and views files saved earlier (no focal length) match any focal length."""
+    (reports / "calib_1280x720.json").write_text(json.dumps(
+        {"size": [1280, 720], "fx": 901.3, "fy": 900.7, "cx": 664.2, "cy": 358.8, "dist": [0.1, 0, 0, 0, 0],
+         "rms": 0.25, "views": 33, "source": "checkerboard"}))
+    (reports / "views_1280x720.json").write_text(json.dumps([[[1.0, 2.0]] * 54]))
+    assert ln.load(str(reports), (1280, 720), 23).views == 33
+    assert len(cb.load_views(str(reports), (1280, 720), 23)) == 1
+
+
+def test_changing_focal_on_the_page_changes_the_lens(reports, recording):
+    lens = ln.FieldLens(syn.STREAM, 960.0, 960.0, 720, 540, rms=0.25, views=20, source="checkerboard")
+    ln.save(lens, str(reports), 23)
+    live = web.Live(recording[0], loop=True)
+    try:
+        client = TestClient(web.make_app(live))
+        assert client.get("/api/state").json()["steps"]["lens"] is True
+        state = client.post("/api/settings", json={"focal_equiv_mm": 28}).json()
+        assert state["steps"]["lens"] is None and live.session["lens"] is None
+        state = client.post("/api/settings", json={"focal_equiv_mm": 23}).json()
+        assert state["steps"]["lens"] is True
+    finally:
+        live.stop = True

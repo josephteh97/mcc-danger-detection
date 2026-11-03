@@ -3,7 +3,7 @@ camera, synthetic cones and synthetic checkerboards (tests/fakes/fieldtest_synth
 import math
 
 import numpy as np
-from _check import check, main
+from _check import check, main, near
 from fakes import fieldtest_synth as syn
 
 from tools import fieldtest as ft
@@ -12,23 +12,16 @@ from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
 from tools.fieldtest import pose as ps
 from tools.fieldtest import source as src
-from tools.fieldtest.calib import calibrate, find_corners
+from tools.fieldtest.__main__ import build_parser, server_config
+from tools.fieldtest.calib import calibrate
 from tools.fieldtest.lens import FieldCamera, FieldLens
 
 PHONE = ft.load_phone()
 
 
-def near(value, target, tol):
-    return abs(value - target) <= tol
-
-
-def default_zone():
-    return ov.zone(ft.nominal_fp(1440, 23), 1440, 1080, 100)
-
-
 @check("P01", "Phone solver numbers")
 def p01():
-    z = default_zone()
+    z = ov.zone(ft.nominal_fp(1440, 23), 1440, 1080, 100)
     p, fp = ft.pitch_um(PHONE, 1440), ft.nominal_fp(1440, 23)
     p_photo, fp_photo = ft.pitch_um(PHONE, 4080), ft.nominal_fp(4080, 23)
     ok = (near(z["z_max"], 9.57, 0.05) and near(z["w_max"], 14.4, 1e-6) and near(z["s"], 5.75, 0.05)
@@ -50,7 +43,7 @@ def p02():
 
 @check("P03", "Projection round trip")
 def p03():
-    lens = FieldLens((1440, 1080), 957, 955, 722, 538, [-0.05, 0.01, 0, 0, 0], source="synthetic")
+    lens = FieldLens(syn.STREAM, 957, 955, 722, 538, [-0.05, 0.01, 0, 0, 0], source="synthetic")
     cam = FieldCamera.posed(lens, 1.5, 10.0, heading_deg=3.0, roll_deg=1.0)
     rng = np.random.default_rng(3)
     errs = []
@@ -79,11 +72,9 @@ def p04():
 
 @check("P05", "Synthetic checkerboard calibration")
 def p05():
-    lens = FieldLens.pinhole((1440, 1080), syn.FP)
-    rng = np.random.default_rng(5)
-    corners = [find_corners(syn.render_board(lens, r, t), (9, 6)) for r, t in syn.board_poses(15, rng)]
+    corners = syn.board_views(FieldLens.pinhole(syn.STREAM, syn.FP))
     found = sum(c is not None for c in corners)
-    cal = calibrate(corners, (9, 6), 0.025, (1440, 1080), min_views=12)
+    cal = calibrate(corners, (9, 6), 0.025, syn.STREAM, min_views=12)
     err = 100 * abs(cal.fx - syn.FP) / syn.FP
     return err <= 0.5, f"{found}/15 views found, fx {cal.fx:.1f} px ({err:.2f}% off 957), reprojection {cal.rms:.3f} px", \
         "fx within 0.5% of 957 px"
@@ -125,7 +116,6 @@ def p09():
 
 @check("P10", "Page binds to loopback")
 def p10():
-    from tools.fieldtest.__main__ import build_parser, server_config
     cfg = server_config(build_parser().parse_args(["serve"]), app=None)
     shown = src.hide_password("rtsp://user:secret@192.168.1.20:8080/h264_ulaw.sdp")
     ok = cfg.host == "127.0.0.1" and cfg.port == 8090 and shown == "rtsp://user:***@192.168.1.20:8080/h264_ulaw.sdp"

@@ -10,7 +10,9 @@ import numpy as np
 
 from tools.coverage import largest_zone
 from tools.fieldtest import camera_spec
+from tools.fieldtest.lens import FieldCamera
 
+CORNERS = ("far left", "far right", "near right", "near left")      # the order `square` returns
 GREEN, YELLOW, CYAN, WHITE, GRID = (60, 220, 60), (0, 220, 255), (255, 220, 0), (255, 255, 255), (200, 130, 230)
 
 
@@ -22,8 +24,7 @@ def zone(fp, n, h, rho):
 
 
 def square(z, origin=(0.0, 0.0), heading_deg=0.0):
-    """The square's corners (far left, far right, near right, near left) and centre on the ground,
-    centred on the forward line from `origin` (the point under the phone) along `heading`."""
+    """The square's corners (in CORNERS order) and centre on the ground, centred on the forward line from `origin` (the point under the phone) along `heading`."""
     h = math.radians(heading_deg)
     fwd, right = np.array([math.sin(h), math.cos(h)]), np.array([math.cos(h), -math.sin(h)])
     o, half = np.asarray(origin, dtype=np.float64), z["s"] / 2
@@ -32,12 +33,16 @@ def square(z, origin=(0.0, 0.0), heading_deg=0.0):
     return corners, o + fwd * z["d"]
 
 
+def camera_square(cam, z):
+    """The square straight ahead of this camera."""
+    return square(z, cam.pos[:2], cam.heading_deg)
+
+
 def layout(z):
     """The layout sheet: (x, y) metres from the point under the phone, ready to tape out."""
     corners, centre = square(z)
     marks = [[0.0, float(m)] for m in range(1, int(math.floor(z["z_max"])) + 1)]
-    return {"corners": {name: [round(float(x), 2), round(float(y), 2)] for name, (x, y) in
-                        zip(("far left", "far right", "near right", "near left"), corners)},
+    return {"corners": {name: [round(float(x), 2), round(float(y), 2)] for name, (x, y) in zip(CORNERS, corners)},
             "centre": [0.0, round(float(centre[1]), 2)],
             "w_max_points": [[-round(z["w_max"] / 2, 2), round(z["z_max"], 2)], [round(z["w_max"] / 2, 2), round(z["z_max"], 2)]],
             "forward_marks": marks,
@@ -59,9 +64,9 @@ def describe_layout(sheet):
 def corner_table(cam, z):
     """Per corner: ground position, 3D px/m (a 1 m pole's length through the calibrated camera) and
     the plan-view px/m f/p ÷ forward distance, which only equals it for a level camera."""
-    corners, _ = square(z, cam.pos[:2], _heading(cam))
+    corners, _ = camera_square(cam, z)
     rows = []
-    for name, (x, y) in zip(("far left", "far right", "near right", "near left"), corners):
+    for name, (x, y) in zip(CORNERS, corners):
         fwd = float(np.dot([x - cam.pos[0], y - cam.pos[1]], cam.ground_axes()[0]))
         rows.append({"corner": name, "x": float(x), "y": float(y), "px_per_m_3d": cam.pole_px((x, y)),
                      "px_per_m_plan": z["fp"] / fwd})
@@ -71,14 +76,13 @@ def corner_table(cam, z):
 def aimed(lens, z, height_m):
     """The camera the layout assumes before the cones are clicked: at height_m over the origin,
     looking straight ahead and pitched down so the square's centre (0, d) is at the image centre."""
-    from tools.fieldtest.lens import FieldCamera
     return FieldCamera.posed(lens, height_m, math.degrees(math.atan2(height_m, z["d"])))
 
 
 def zone_box(cam, z, steps=24):
     """The square in the real image: each corner's pixel and the bounding box of its outline (edges
     bent through the lens), or None when part of it is behind the camera."""
-    corners, _ = square(z, cam.pos[:2], _heading(cam))
+    corners, _ = camera_square(cam, z)
     t = np.linspace(0, 1, steps)[:, None]
     edge = np.vstack([a + (b - a) * t for a, b in zip(corners, np.roll(corners, -1, axis=0))])
     uv, depth = cam.image_points(np.column_stack([edge, np.zeros(len(edge))]))
@@ -86,31 +90,32 @@ def zone_box(cam, z, steps=24):
         return None
     cuv, _ = cam.image_points(np.column_stack([corners, np.zeros(4)]))
     (u0, v0), (u1, v1) = uv.min(axis=0), uv.max(axis=0)
-    return {"corners_px": {name: [round(float(u), 1), round(float(v), 1)] for name, (u, v) in
-                           zip(("far left", "far right", "near right", "near left"), cuv)},
+    return {"corners_px": {name: [round(float(u), 1), round(float(v), 1)] for name, (u, v) in zip(CORNERS, cuv)},
             "box_px": [round(float(c), 1) for c in (u0, v0, u1, v1)],
             "width_px": round(float(u1 - u0), 1), "height_px": round(float(v1 - v0), 1),
             "in_frame": bool(u0 >= 0 and v0 >= 0 and u1 <= cam.width and v1 <= cam.height)}
 
 
+def zone_text(z):
+    return (f"S {z['s']:.2f} m, d {z['d']:.2f} m, z_near {z['near']:.2f} m, z_far {z['z_max']:.2f} m (= z_max), "
+            f"W_max {z['w_max']:.2f} m")
+
+
+def box_text(box):
+    u0, v0, u1, v1 = box["box_px"]
+    return (f"u {u0:.0f}–{u1:.0f}, v {v0:.0f}–{v1:.0f} px ({box['width_px']:.0f} × {box['height_px']:.0f} px), "
+            f"{'inside' if box['in_frame'] else 'NOT inside'} the frame")
+
+
 def describe_zone(z, box, cam):
     """S, d, z_near, z_far and the square's bounding box in the image, for the terminal."""
-    lines = [f"rho {z['rho']:g} px/m, f/p {z['fp']:.1f} px, frame {cam.width} × {cam.height}",
-             f"S {z['s']:.2f} m, d {z['d']:.2f} m, z_near {z['near']:.2f} m, z_far {z['z_max']:.2f} m "
-             f"(= z_max), W_max {z['w_max']:.2f} m",
+    lines = [f"rho {z['rho']:g} px/m, f/p {z['fp']:.1f} px, frame {cam.width} × {cam.height}", zone_text(z),
              f"phone at {cam.pos[2]:.2f} m, pitch {cam.pitch_deg:.1f}° down"]
     if box is None:
         return "\n".join(lines + ["the square is partly behind the camera: no bounding box"])
-    u0, v0, u1, v1 = box["box_px"]
-    lines.append(f"bounding box u {u0:.0f}–{u1:.0f}, v {v0:.0f}–{v1:.0f} px ({box['width_px']:.0f} × "
-                 f"{box['height_px']:.0f} px), {'inside the frame' if box['in_frame'] else 'NOT inside the frame'}")
+    lines.append(f"bounding box {box_text(box)}")
     lines += [f"  {name:10s} ({u:7.1f}, {v:6.1f}) px" for name, (u, v) in box["corners_px"].items()]
     return "\n".join(lines)
-
-
-def _heading(cam):
-    f = cam.R[2]
-    return math.degrees(math.atan2(f[0], f[1]))
 
 
 def footprint(cam, max_range_m=40.0, n=64):
@@ -120,27 +125,24 @@ def footprint(cam, max_range_m=40.0, n=64):
                              np.column_stack([np.full(n, w), np.linspace(0, h, n)]),
                              np.column_stack([np.linspace(w, 0, n), np.full(n, h)]),
                              np.column_stack([np.zeros(n), np.linspace(h, 0, n)])])
-    pts = []
-    for u, v in cam.lens.undistort(border):
-        d = cam.rays(np.array([u]), np.array([v]))[0]
-        s = -cam.pos[2] / d[2] if d[2] < -1e-9 else math.inf
-        s = min(s, max_range_m / max(math.hypot(d[0], d[1]), 1e-9))
-        pts.append((cam.pos[0] + s * d[0], cam.pos[1] + s * d[1]))
-    return np.array(pts)
+    d = cam.rays(*cam.lens.undistort(border).T)
+    down = d[:, 2] < -1e-9
+    s = np.full(len(d), math.inf)
+    s[down] = -cam.pos[2] / d[down, 2]
+    s = np.minimum(s, max_range_m / np.maximum(np.hypot(d[:, 0], d[:, 1]), 1e-9))
+    return cam.pos[:2] + s[:, None] * d[:, :2]
 
 
 def _poly(img, cam, ground_xy, colour, closed=True, thickness=2, steps=24):
     """Draw a ground polygon, each edge bent through the lens."""
     g = np.asarray(ground_xy, dtype=np.float64)
-    segs = len(g) if closed else len(g) - 1
-    for i in range(segs):
-        a, b = g[i], g[(i + 1) % len(g)]
-        t = np.linspace(0, 1, steps)[:, None]
-        p = a + (b - a) * t
-        uv, z = cam.image_points(np.column_stack([p, np.zeros(len(p))]))
-        ok = z > 0.05
-        if ok.sum() >= 2:
-            cv2.polylines(img, [np.round(uv[ok] * 4).astype(np.int32)], False, colour, thickness, cv2.LINE_AA, shift=2)
+    a, b = (g, np.roll(g, -1, axis=0)) if closed else (g[:-1], g[1:])
+    p = (a[:, None] + (b - a)[:, None] * np.linspace(0, 1, steps)[None, :, None]).reshape(-1, 2)
+    uv, z = cam.image_points(np.column_stack([p, np.zeros(len(p))]))
+    edges = zip(uv.reshape(len(a), steps, 2), z.reshape(len(a), steps) > 0.05)
+    lines = [np.round(e[ok] * 4).astype(np.int32) for e, ok in edges if ok.sum() >= 2]
+    if lines:
+        cv2.polylines(img, lines, False, colour, thickness, cv2.LINE_AA, shift=2)
 
 
 def _label(img, xy, text, colour=WHITE, scale=0.55):
@@ -156,7 +158,7 @@ def draw(frame, cam, z, grid_m=1.0):
     """The overlay: footprint, 1 m grid, W_max line at z_max, square S, its centre at d and the
     3D px/m at each corner (with the plan-view value beside it when the camera is tilted)."""
     img = frame.copy()
-    corners, centre = square(z, cam.pos[:2], _heading(cam))
+    corners, centre = camera_square(cam, z)
     fp_poly = footprint(cam, max_range_m=z["z_max"] * 1.5)
     lo, hi = fp_poly.min(axis=0), fp_poly.max(axis=0)
     for x in np.arange(math.floor(lo[0]), math.ceil(hi[0]) + 1, grid_m):

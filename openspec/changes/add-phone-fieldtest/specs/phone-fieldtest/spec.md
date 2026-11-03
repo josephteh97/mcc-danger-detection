@@ -29,6 +29,10 @@ The tool SHALL calibrate the lens from at least 12 checkerboard views (default 9
 - **WHEN** 15 sharp views are captured at 1440 × 1080
 - **THEN** the reprojection error is at most 0.5 px and the report shows the measured fx against the nominal 957 px for 23 mm, with the difference in percent
 
+#### Scenario: A saved lens belongs to its focal length
+- **WHEN** a lens calibrated at 23 mm is saved and the tool runs at the same stream size with 28 mm set
+- **THEN** it uses the nominal lens for 28 mm, not the saved one, until the lens is calibrated at 28 mm
+
 #### Scenario: Synthetic calibration (P05)
 - **WHEN** the calibration runs on 15 synthetic checkerboard views rendered with fx = 957 px
 - **THEN** it recovers fx within 0.5%
@@ -87,6 +91,10 @@ The user SHALL be able to click the two ends of a vertical object (a 1 m pole, o
 #### Scenario: Pole at the far corner
 - **WHEN** a 1 m pole stands at a far corner of the default square in the level run
 - **THEN** it measures about 100 px and the measurement passes within ±5% of the prediction
+
+#### Scenario: No verdict without a pose
+- **WHEN** a measurement or a named cone is clicked before the pose is solved (fewer than 4 cones)
+- **THEN** the rows are kept, worked out from the camera aimed at the square's centre, and their result and the overlay and density steps read "not run", neither PASS nor FAIL
 
 #### Scenario: Pass-band logic (P08)
 - **WHEN** the measurement log holds a 3% error, a 7% error and a 1 px error on a 15 px object

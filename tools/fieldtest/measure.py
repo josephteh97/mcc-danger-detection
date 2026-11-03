@@ -7,9 +7,8 @@ import csv
 import math
 import os
 
-import numpy as np
-
 PASS_PCT, FLOOR_PX, SHORT_PX = 5.0, 1.0, 20.0
+NOT_RUN = "not run"                 # a row's result until the pose is solved
 FIELDS = ("label", "length_m", "bottom_u", "bottom_v", "top_u", "top_v", "ground_x", "ground_y",
           "distance_m", "predicted_px", "measured_px", "error_px", "error_pct", "result")
 
@@ -22,7 +21,7 @@ def passes(predicted_px, measured_px, pct=PASS_PCT, floor_px=FLOOR_PX):
     return 100.0 * err / predicted_px <= pct + 1e-9
 
 
-def measure(cam, bottom, top, length_m=1.0, label="", pct=PASS_PCT, floor_px=FLOOR_PX):
+def measure(cam, bottom, top, length_m, label, pct, floor_px):
     """One measurement row (see FIELDS). bottom and top are real image pixels."""
     g = cam.ground_of_pixel(*bottom)
     if g is None:
@@ -32,7 +31,7 @@ def measure(cam, bottom, top, length_m=1.0, label="", pct=PASS_PCT, floor_px=FLO
     return {"label": label, "length_m": float(length_m),
             "bottom_u": float(bottom[0]), "bottom_v": float(bottom[1]), "top_u": float(top[0]), "top_v": float(top[1]),
             "ground_x": round(g[0], 4), "ground_y": round(g[1], 4),
-            "distance_m": round(float(np.hypot(g[0] - cam.pos[0], g[1] - cam.pos[1])), 4),
+            "distance_m": round(cam.ground_distance(g), 4),
             "predicted_px": round(pred, 3), "measured_px": round(meas, 3), "error_px": round(meas - pred, 3),
             "error_pct": round(100.0 * (meas - pred) / pred, 3),
             "result": "PASS" if passes(pred, meas, pct, floor_px) else "FAIL"}
