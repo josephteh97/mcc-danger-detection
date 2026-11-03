@@ -41,7 +41,7 @@ def run(frames, det, cam, steps, window_m=0.75):
                      "box_h_px": float(np.median([h for h, _ in hit])) if hit else float("nan"),
                      "confidence": float(np.mean([c for _, c in hit])) if hit else float("nan"),
                      "predicted_h_px": None})
-    return {"detections": dets, "steps": rows, "point_90": point_90(rows), "frames": sum(seen), "reliable_to_px": reliable_to(rows)}
+    return {"detections": dets, "steps": rows, **summary(rows)}
 
 
 def point_90(rows):
@@ -59,13 +59,13 @@ def point_90(rows):
     return None
 
 
-def reliable_to(rows):
-    """The smallest box height the rate holds 90% down to, or None if it never does or no frame was judged."""
+def summary(rows):
+    """What a session keeps of a sweep: the 90% point, the frames judged and the smallest box height
+    the rate holds 90% down to (None if it never does or no frame was judged)."""
     p90 = point_90(rows)
-    if p90:
-        return p90["box_h_px"]
     boxes = [r["box_h_px"] for r in rows if r["frames"] and not math.isnan(r["box_h_px"])]
-    return min(boxes) if boxes else None
+    return {"point_90": p90, "frames": sum(r["frames"] for r in rows),
+            "reliable_to_px": p90["box_h_px"] if p90 else min(boxes, default=None)}
 
 
 def detection_ok(sweep):

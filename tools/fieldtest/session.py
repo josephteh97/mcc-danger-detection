@@ -18,6 +18,8 @@ from tools.fieldtest import source as src
 from tools.fieldtest import sweep as sw
 from tools.fieldtest.calib import against_nominal
 
+PER_FOCAL = ("cones", "measurements", "sweep")      # made on the picture of one focal length
+
 
 def new(size, source="", preset="default", phone=None, **settings):
     phone = phone or load_phone()
@@ -43,11 +45,8 @@ def set_focal(session, focal, folder):
     if focal == old:
         return False
     parked = session.setdefault("parked", {})
-    parked[f"{old:g}"] = {"cones": session["cones"], "measurements": session["measurements"], "sweep": session.pop("sweep", None)}
-    back = parked.pop(f"{focal:g}", {})
-    session.update(focal_equiv_mm=focal, lens=None, cones=back.get("cones", []), measurements=back.get("measurements", []))
-    if back.get("sweep"):
-        session["sweep"] = back["sweep"]
+    parked[f"{old:g}"] = {k: session.get(k) for k in PER_FOCAL}
+    session.update(parked.pop(f"{focal:g}", {"cones": [], "measurements": [], "sweep": None}), focal_equiv_mm=focal, lens=None)
     load_saved_lens(session, folder)
     return True
 
@@ -96,13 +95,21 @@ def camera_of(session, lens):
     """The solved camera or, until the cones give one, the camera the layout assumes: at the taped
     height over the origin, aimed at the square's centre. Cones with no pose add the reason as
     `error`: a mistyped cone must not stop the page."""
-    assumed = {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
+    def assumed():
+        return {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
     if len(session["cones"]) < ps.MIN_CONES:
-        return assumed
+        return assumed()
     try:
         return ps.solve([(c["x"], c["y"]) for c in session["cones"]], [(c["u"], c["v"]) for c in session["cones"]], lens)
     except ValueError as e:
-        return {**assumed, "error": str(e)}
+        return {**assumed(), "error": str(e)}
+
+
+def row_of(session, cam, m, judged=True):
+    """The measurement row of one stored click."""
+    band = session["pass"]
+    return ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),
+                      band["density_pct"], band["density_floor_px"], judged)
 
 
 def evaluate(session):
@@ -113,8 +120,9 @@ def evaluate(session):
     out["steps"] = {"lens": None if not lens.calibrated else lens.rms <= band["lens_rms_px"]}
     pose = camera_of(session, lens)
     cam = pose["camera"]
+    judged = pose["solved"]                      # an assumed camera is a preview: nothing is judged against it
     out["pose"] = ps.summary(pose)
-    if pose["solved"]:
+    if judged:
         ok = pose["max_reproj_px"] <= band["pose_reproj_px"]
         if session.get("taped_height_m") is not None:
             ok = ok and abs(pose["height_m"] - session["taped_height_m"]) <= band["pose_height_m"]
@@ -127,24 +135,20 @@ def evaluate(session):
     out["corners"] = ov.corner_table(cam, z)
     out["box"] = ov.zone_box(cam, z)
     out["overlay_allowed"] = src.overlay_allowed(session["size"], lens)
-    overlay = overlay_check(session, cam, z, band["overlay_pct_of_width"])
-    if not out["overlay_allowed"]:               # 16:9 and so on: the nominal lens doesn't apply here
-        overlay = {"rows": [{**r, "ok": None} for r in overlay["rows"]], "ok": None}
-    rows = [ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),
-                       band["density_pct"], band["density_floor_px"]) for m in session["measurements"]]
-    if not pose["solved"]:                       # the aimed camera is a preview: nothing to judge against it
-        overlay = {"rows": [{**r, "ok": None} for r in overlay["rows"]], "ok": None}
-        rows = [{**r, "result": ms.NOT_RUN} for r in rows]
+    # on a frame like 16:9 the nominal lens doesn't apply, so neither does its overlay
+    overlay = overlay_check(session, cam, z, band["overlay_pct_of_width"], judged and out["overlay_allowed"])
+    rows = [row_of(session, cam, m, judged) for m in session["measurements"]]
     out["overlay"], out["measurements"] = overlay, rows
     out["steps"]["overlay"] = overlay["ok"]
-    out["steps"]["density"] = all(r["result"] == "PASS" for r in rows) if rows and pose["solved"] else None
-    if session.get("sweep"):                     # the feet are placed with the camera: judged only with a pose
-        out["steps"]["detection"] = sw.detection_ok(session["sweep"]) if pose["solved"] else None
+    out["steps"]["density"] = all(r["result"] == "PASS" for r in rows) if rows and judged else None
+    if session.get("sweep"):
+        out["steps"]["detection"] = sw.detection_ok(session["sweep"]) if judged else None
     return out, cam, z
 
 
-def overlay_check(session, cam, z, pct):
-    """Each cone named after a square corner, against the drawn corner (within pct of the width)."""
+def overlay_check(session, cam, z, pct, judged=True):
+    """Each cone named after a square corner, against the drawn corner (within pct of the width).
+    Not `judged`, the offsets are still shown, with no verdict."""
     named = dict(zip(ov.CORNERS, ov.camera_square(cam, z)[0]))
     rows = []
     for c in session["cones"]:
@@ -153,5 +157,5 @@ def overlay_check(session, cam, z, pct):
             uv, _ = cam.image_points([[g[0], g[1], 0.0]])
             off = float(np.hypot(uv[0, 0] - c["u"], uv[0, 1] - c["v"]))
             rows.append({"corner": c["name"], "off_px": round(off, 2), "off_pct": round(100 * off / cam.width, 2),
-                         "ok": 100 * off / cam.width <= pct})
-    return {"rows": rows, "ok": all(r["ok"] for r in rows) if rows else None}
+                         "ok": 100 * off / cam.width <= pct if judged else None})
+    return {"rows": rows, "ok": all(r["ok"] for r in rows) if rows and judged else None}

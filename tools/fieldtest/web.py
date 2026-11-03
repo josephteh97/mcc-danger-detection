@@ -56,8 +56,7 @@ class Live:
             raise OSError(f"no frames from {self.src.shown}")
         self.frame, self.lock, self.stop = frame, threading.Lock(), False
         self.folder = report_dir()
-        fresh = ss.new(self.src.size, self.src.shown, preset, self.phone, rho=rho)
-        self.session = ss.resume(self.session_path(), fresh)
+        self.session = ss.resume(self.session_path(), ss.new(self.src.size, self.src.shown, preset, self.phone))
         if rho is not None:
             self.session["rho"] = rho
         ss.load_saved_lens(self.session, REPORTS)
@@ -184,18 +183,14 @@ def make_app(live):
 
     @app.post("/api/measure")
     def measure(body: dict):
-        length = _number(body.get("length_m", 1.0), "the length")
-        if length <= 0:
-            raise HTTPException(400, "the length must be above 0")
-        live.session["measurements"].append({"label": body.get("label", ""), "length_m": length,
-                                             "bottom": [_number(c, "the click") for c in body["bottom"]],
-                                             "top": [_number(c, "the click") for c in body["top"]]})
-        state = live.state()
-        if state["pose"]["solved"] and state["measurements"][-1]["predicted_px"] is None:
-            live.session["measurements"].pop()   # the pose is known, so the click is wrong: refuse it
-            raise HTTPException(400, ms.NO_GROUND)
-        live.save()
-        return state
+        m = {"label": body.get("label", ""), "length_m": _positive(body.get("length_m", 1.0), "the length"),
+             "bottom": [_number(c, "the click") for c in body["bottom"]],
+             "top": [_number(c, "the click") for c in body["top"]]}
+        pose = ss.camera_of(live.session, ss.lens_of(live.session))
+        if pose["solved"] and ss.row_of(live.session, pose["camera"], m)["predicted_px"] is None:
+            raise HTTPException(400, ms.NO_GROUND)   # the pose is known, so the click is wrong
+        live.session["measurements"].append(m)
+        return changed()
 
     @app.post("/api/undo")
     def undo(body: dict):

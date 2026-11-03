@@ -150,7 +150,7 @@ def _poly(img, cam, ground_xy, colour, closed=True, thickness=2, steps=24):
     a, b = (g, np.roll(g, -1, axis=0)) if closed else (g[:-1], g[1:])
     p = _along(a, b, steps)
     uv, z = cam.image_points(np.column_stack([p, np.zeros(len(p))]))
-    edges = zip(uv.reshape(len(a), steps, 2), (z > 0.05).reshape(len(a), steps) & _drawable(uv).reshape(len(a), steps))
+    edges = zip(uv.reshape(len(a), steps, 2), ((z > 0.05) & _drawable(uv)).reshape(len(a), steps))
     lines = [np.round(e[ok] * 4).astype(np.int32) for e, ok in edges if ok.sum() >= 2]
     if lines:
         cv2.polylines(img, lines, False, colour, thickness, cv2.LINE_AA, shift=2)

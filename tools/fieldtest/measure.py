@@ -27,10 +27,10 @@ def num(value, spec):
     return "-" if value is None else format(value, spec)
 
 
-def measure(cam, bottom, top, length_m, label, pct, floor_px):
-    """One measurement row (see FIELDS). bottom and top are real image pixels. A base this camera
-    can't place on the ground (above its horizon) stays a row, with no prediction, and fails: the
-    click may be right and the camera wrong, as when a cone is undone."""
+def measure(cam, bottom, top, length_m, label, pct, floor_px, judged=True):
+    """One measurement row (see FIELDS). bottom and top are real image pixels; not `judged`, the
+    result is NOT_RUN. A base this camera can't place on the ground (above its horizon) stays a row,
+    with no prediction, and fails: the click may be right and the camera wrong, as when a cone is undone."""
     g = cam.ground_of_pixel(*bottom)
     pred = float("nan") if g is None else cam.pole_px(g, length_m)
     meas = float(math.dist(bottom, top))
@@ -38,13 +38,13 @@ def measure(cam, bottom, top, length_m, label, pct, floor_px):
               "bottom_u": float(bottom[0]), "bottom_v": float(bottom[1]), "top_u": float(top[0]), "top_v": float(top[1])}
     if not pred > 0:                    # above the horizon, behind the camera or no length
         return {**clicks, "ground_x": None, "ground_y": None, "distance_m": None, "predicted_px": None,
-                "measured_px": round(meas, 3), "error_px": None, "error_pct": None, "result": "FAIL"}
+                "measured_px": round(meas, 3), "error_px": None, "error_pct": None, "result": "FAIL" if judged else NOT_RUN}
     return {**clicks,
             "ground_x": round(g[0], 4), "ground_y": round(g[1], 4),
             "distance_m": round(cam.ground_distance(g), 4),
             "predicted_px": round(pred, 3), "measured_px": round(meas, 3), "error_px": round(meas - pred, 3),
             "error_pct": round(100.0 * (meas - pred) / pred, 3),
-            "result": "PASS" if passes(pred, meas, pct, floor_px) else "FAIL"}
+            "result": NOT_RUN if not judged else "PASS" if passes(pred, meas, pct, floor_px) else "FAIL"}
 
 
 def write_csv(rows, path):

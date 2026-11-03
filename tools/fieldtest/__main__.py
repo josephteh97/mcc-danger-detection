@@ -166,8 +166,7 @@ def main(argv=None):
         for w in live.src.warnings:
             print("WARNING:", w)
         print(f"{live.src.shown}: {live.src.size[0]} × {live.src.size[1]}; page on http://{a.bind}:{a.port}/")
-        others = ln.saved_focals(REPORTS, live.src.size)
-        if not live.session["lens"] and others:
+        if not live.session["lens"] and (others := ln.saved_focals(REPORTS, live.src.size)):
             print(f"no calibration at {live.session['focal_equiv_mm']:g} mm; saved at "
                   f"{', '.join(f'{f:g}' for f in others)} mm: use --focal for one of those")
         if live.session["cones"] or live.session["measurements"]:
@@ -284,7 +283,7 @@ def main(argv=None):
         det = make_detector({"mode": "yolo", "model": a.model, "tiles": a.tiles})      # as the app runs it
         r = sw.run(src.Source(a.file), det, cam, steps)
         folder = sw.write(r, a.out or os.path.dirname(os.path.abspath(a.session)), cam, a.height)
-        session["sweep"] = {k: r[k] for k in ("point_90", "frames", "reliable_to_px")}
+        session["sweep"] = sw.summary(r["steps"])
         ss.save(session, a.session)
         for s in r["steps"]:
             print(f"{s['distance_m']:5.1f} m: {s['detected']}/{s['frames']} frames ({100 * s['rate']:.0f}%), box {s['box_h_px']:.0f} px")

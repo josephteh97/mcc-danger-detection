@@ -75,9 +75,13 @@ class FieldLens:
         return cls(**d)
 
 
+def _stem(kind, folder, size):
+    return os.path.join(folder, f"{kind}_{size[0]}x{size[1]}")
+
+
 def focal_path(kind, folder, size, focal_equiv_mm):
     """Where a calibration ("calib") or captured views ("views") of this size and focal length are saved."""
-    return os.path.join(folder, f"{kind}_{size[0]}x{size[1]}_{float(focal_equiv_mm):g}mm.json")
+    return f"{_stem(kind, folder, size)}_{float(focal_equiv_mm):g}mm.json"
 
 
 def _old_focal(path):
@@ -92,13 +96,13 @@ def focal_file(kind, folder, size, focal_equiv_mm):
     path = focal_path(kind, folder, size, focal_equiv_mm)
     if os.path.exists(path):
         return path
-    old = os.path.join(folder, f"{kind}_{size[0]}x{size[1]}.json")
+    old = _stem(kind, folder, size) + ".json"
     return old if os.path.exists(old) and _old_focal(old) == float(focal_equiv_mm) else None
 
 
 def saved_focals(folder, size):
     """The focal lengths with a saved lens at this size."""
-    stem = os.path.join(folder, f"calib_{size[0]}x{size[1]}")
+    stem = _stem("calib", folder, size)
     found = {float(m[1]) for p in glob.glob(glob.escape(stem) + "_*mm.json") if (m := re.search(r"_([0-9.]+)mm\.json$", p))}
     return sorted(found | ({_old_focal(stem + ".json")} if os.path.exists(stem + ".json") else set()))
 
@@ -196,11 +200,11 @@ class FieldCamera(PinholeCamera):
         the image, the density just above the ground. None if the point is behind the camera."""
         x, y = xy
         uv, z = self.project([[x, y, 0.0], [x, y, 1.0]])
-        if not np.all(z > 0) or not self.lens.in_fit(uv[1]):
-            uv, z = self.project([[x, y, 0.0], [x, y, SHORT_M]])
-            if not np.all(z > 0):
-                return None
-            if self.lens.in_fit(uv[0]):
-                return self.pole_px(xy, SHORT_M) / SHORT_M
-            return float(np.linalg.norm(uv[1] - uv[0])) / SHORT_M      # outside the fit: no distortion
-        return self.pole_px(xy)
+        if np.all(z > 0) and self.lens.in_fit(uv[1]):
+            return self.pole_px(xy)
+        uv, z = self.project([[x, y, 0.0], [x, y, SHORT_M]])
+        if not np.all(z > 0):
+            return None
+        if self.lens.in_fit(uv[0]):
+            return self.pole_px(xy, SHORT_M) / SHORT_M
+        return float(np.linalg.norm(uv[1] - uv[0])) / SHORT_M      # outside the fit: no distortion

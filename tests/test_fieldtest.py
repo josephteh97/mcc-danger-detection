@@ -43,19 +43,43 @@ def recording(tmp_path):
 
 
 @pytest.fixture()
-def live(reports, recording):
-    live = web.Live(recording[0], loop=True)
-    yield live
-    live.close()
+def open_live(reports, recording):
+    """Opens pages on the recording, once a test has saved what they load, and closes them all."""
+    opened = []
+
+    def start(*args, **kw):
+        opened.append(web.Live(recording[0], *args, loop=True, **kw))
+        return opened[-1]
+    yield start
+    for live in opened:
+        live.close()
+
+
+@pytest.fixture()
+def live(open_live):
+    return open_live()
+
+
+def session_cones(cam, points):
+    """Cone rows for {name: (x, y)}, clicked exactly where this camera sees them."""
+    uv, _ = cam.image_points([[x, y, 0.0] for x, y in points.values()])
+    return [{"name": n, "x": float(x), "y": float(y), "u": float(u), "v": float(v)} for (n, (x, y)), (u, v) in zip(points.items(), uv)]
+
+
+def click_cones(client, cam):
+    for cone in session_cones(cam, CONES):
+        assert client.post("/api/cone", json=cone).status_code == 200
+
+
+def lens_of_focal(fx, focal, folder):
+    ln.save(ln.FieldLens(syn.STREAM, fx, fx, syn.STREAM[0] / 2, syn.STREAM[1] / 2, rms=0.25, views=20, source="checkerboard"), str(folder), focal)
 
 
 def test_live_clicks_replay_to_the_same_log(reports, recording, live):
     _, cam = recording
     client = TestClient(web.make_app(live))
     assert client.get("/").status_code == 200
-    for name, (x, y) in CONES.items():
-        (u, v), = cam.image_points([[x, y, 0.0]])[0]
-        assert client.post("/api/cone", json={"u": u, "v": v, "x": x, "y": y, "name": name}).status_code == 200
+    click_cones(client, cam)
     for i, (x, y) in enumerate(POLES):
         b, t = cam.image_points([[x, y, 0.0], [x, y, 1.0]])[0]
         r = client.post("/api/measure", json={"bottom": list(b), "top": list(t + [0, -1.5]), "length_m": 1, "label": f"pole {i}"})
@@ -73,12 +97,6 @@ def test_live_clicks_replay_to_the_same_log(reports, recording, live):
     live_csv = str(reports / "live.csv")
     ms.write_csv(live_log, live_csv)
     assert open(out).read() == open(live_csv).read()
-
-
-def click_cones(client, cam, cones=CONES):
-    for name, (x, y) in cones.items():
-        (u, v), = cam.image_points([[x, y, 0.0]])[0]
-        assert client.post("/api/cone", json={"u": u, "v": v, "x": x, "y": y, "name": name}).status_code == 200
 
 
 def test_bad_click_is_refused_not_logged(reports, recording, live):
@@ -116,12 +134,9 @@ def test_bad_markers_read_as_fail_and_the_page_keeps_going(reports, recording, l
     for (x, y), (u, v) in zip(marks, uv):
         assert client.post("/api/cone", json={"u": float(u), "v": float(v), "x": x, "y": y}).status_code == 200
     state = client.get("/api/state").json()
-    if not state["pose"]["solved"]:
-        assert state["pose"]["error"] and state["steps"]["pose"] is False and state["steps"]["overlay"] is None
-    else:                                                            # a pose came out, but not one that fits
-        assert state["steps"]["pose"] is False
-    assert live.jpeg()
-    assert "Not solved" in open(client.post("/api/report").json()["report"]).read() or state["pose"]["solved"]
+    assert not state["pose"]["solved"] and state["pose"]["error"]
+    assert state["steps"]["pose"] is False and state["steps"]["overlay"] is None and live.jpeg()
+    assert "Not solved" in open(client.post("/api/report").json()["report"]).read()
     assert client.post("/api/undo", json={"what": "cone"}).json()["steps"]["pose"] is None
 
 
@@ -145,34 +160,29 @@ def test_base_above_the_horizon_stays_a_row_and_never_stops_the_page(reports, li
     assert main(["measure", "--session", str(reports / "session.json"), "--out", str(reports / "m.csv")]) == 0
 
 
-def test_restarting_the_page_keeps_the_clicks(reports, recording):
+def test_restarting_the_page_keeps_the_clicks(reports, recording, open_live):
     """Same setup: clicks and settings kept. Another preset: a new session, the old file moved aside."""
-    def page(*args, **kw):
-        live = web.Live(recording[0], *args, loop=True, **kw)
-        return live, TestClient(web.make_app(live))
-    live, client = page(rho=90)
-    click_cones(client, recording[1])
+    live = open_live(rho=90)
+    click_cones(TestClient(web.make_app(live)), recording[1])
     live.close()
-    live, client = page()
+    live = open_live()
     assert len(live.session["cones"]) == 4 and live.session["rho"] == 90
-    assert client.get("/api/state").json()["pose"]["solved"]
+    assert TestClient(web.make_app(live)).get("/api/state").json()["pose"]["solved"]
     live.close()
-    live, _ = page(rho=95)
+    live = open_live(rho=95)
     assert len(live.session["cones"]) == 4 and live.session["rho"] == 95
     live.save()
     live.close()
-    live, client = page("office")
+    live = open_live("office")
     assert not live.session["cones"] and live.session["preset"] == "office"
-    client.post("/api/settings", json={"overlay": True})
-    live.close()
+    live.save()
     kept = [f for f in os.listdir(reports) if f.startswith("session_")]
     assert len(kept) == 1 and len(ss.load(str(reports / kept[0]))["cones"]) == 4
 
 
-def test_a_damaged_session_file_is_moved_aside(reports, recording):
+def test_a_damaged_session_file_is_moved_aside(reports, open_live):
     (reports / "session.json").write_text("{not json")
-    live = web.Live(recording[0], loop=True)
-    live.close()
+    live = open_live()
     assert not live.session["cones"] and any(f.startswith("session_") for f in os.listdir(reports))
 
 
@@ -330,9 +340,7 @@ def test_nothing_is_judged_without_a_pose():
     session = ss.new(syn.STREAM)
     b, t = cam.image_points([[0.0, 6.0, 0.0], [0.0, 6.0, 1.0]])[0]
     session["measurements"] = [{"label": "pole", "length_m": 1, "bottom": list(map(float, b)), "top": list(map(float, t))}]
-    pts = {"far left": CONES["far left"], "far right": CONES["far right"]}
-    uv, _ = cam.image_points([[x, y, 0.0] for x, y in pts.values()])
-    session["cones"] = [{"name": n, "x": x, "y": y, "u": float(u), "v": float(v)} for (n, (x, y)), (u, v) in zip(pts.items(), uv)]
+    session["cones"] = session_cones(cam, {"far left": CONES["far left"], "far right": CONES["far right"]})
     result, _, _ = ss.evaluate(session)
     assert result["steps"]["pose"] is None and result["steps"]["overlay"] is None and result["steps"]["density"] is None
     assert result["measurements"][0]["result"] == "not run" and result["measurements"][0]["predicted_px"] > 0
@@ -368,57 +376,43 @@ def test_files_from_before_focal_was_recorded_are_the_main_cameras(reports):
     assert cb.load_views(str(reports), (1280, 720), 23) == []
 
 
-def lens_of_focal(fx, focal, folder, size=syn.STREAM):
-    ln.save(ln.FieldLens(size, fx, fx, size[0] / 2, size[1] / 2, rms=0.25, views=20, source="checkerboard"), str(folder), focal)
-
-
-def test_each_focal_length_keeps_its_lens_views_and_clicks(reports, recording):
+def test_each_focal_length_keeps_its_lens_views_and_clicks(reports, open_live):
     """Going to 28 mm and back loses nothing, and old clicks are never judged by another lens."""
     lens_of_focal(960.0, 23, reports)
     lens_of_focal(1170.0, 28, reports)
     views = [np.full((54, 1, 2), float(i), np.float32) for i in range(3)]
     cb.save_views(views, str(reports), syn.STREAM, 23)
-    live = web.Live(recording[0], loop=True)
-    try:
-        client = TestClient(web.make_app(live))
-        cam = ln.FieldCamera.posed(ss.lens_of(live.session), 1.5)
-        click_cones(client, cam)
-        before = client.get("/api/state").json()
-        assert before["pose"]["solved"] and before["views"] == 3
-        state = client.post("/api/settings", json={"focal_equiv_mm": 28}).json()
-        assert state["nominal"]["fx"] == 1170.0 and state["views"] == 0 and not state["session"]["cones"]
-        assert state["steps"]["pose"] is None and state["steps"]["overlay"] is None
-        client.post("/api/calib/clear")                     # at 28 mm: the 23 mm views stay
-        state = client.post("/api/settings", json={"focal_equiv_mm": 23}).json()
-        assert state["nominal"]["fx"] == 960.0 and state["views"] == 3 and len(state["session"]["cones"]) == 4
-        assert state["pose"]["height_m"] == before["pose"]["height_m"] and not state["session"]["parked"].get("23")
-    finally:
-        live.close()
+    live = open_live()
+    client = TestClient(web.make_app(live))
+    click_cones(client, ln.FieldCamera.posed(ss.lens_of(live.session), 1.5))
+    before = client.get("/api/state").json()
+    assert before["pose"]["solved"] and before["views"] == 3
+    state = client.post("/api/settings", json={"focal_equiv_mm": 28}).json()
+    assert state["nominal"]["fx"] == 1170.0 and state["views"] == 0 and not state["session"]["cones"]
+    assert state["steps"]["pose"] is None and state["steps"]["overlay"] is None
+    client.post("/api/calib/clear")                     # at 28 mm: the 23 mm views stay
+    state = client.post("/api/settings", json={"focal_equiv_mm": 23}).json()
+    assert state["nominal"]["fx"] == 960.0 and state["views"] == 3 and len(state["session"]["cones"]) == 4
+    assert state["pose"]["height_m"] == before["pose"]["height_m"] and not state["session"]["parked"].get("23")
 
 
-def test_a_failed_settings_post_changes_nothing(reports, recording):
+def test_a_failed_settings_post_changes_nothing(reports, open_live):
     lens_of_focal(960.0, 23, reports)
-    live = web.Live(recording[0], loop=True)
-    try:
-        client = TestClient(web.make_app(live))
-        for body in ({"focal_equiv_mm": "28", "taped_height_m": "1,5"}, {"focal_equiv_mm": 0}, {"rho": -1}, {"rho": "nan"}):
-            r = client.post("/api/settings", json=body)
-            assert r.status_code == 400 and r.json()["detail"]
-            assert live.session["focal_equiv_mm"] == 23 and live.session["rho"] == 100
-        state = client.post("/api/settings", json={"focal_equiv_mm": "28", "taped_height_m": "1.5"}).json()
-        assert state["steps"]["lens"] is None and state["session"]["taped_height_m"] == 1.5
-    finally:
-        live.close()
+    live = open_live()
+    client = TestClient(web.make_app(live))
+    for body in ({"focal_equiv_mm": "28", "taped_height_m": "1,5"}, {"focal_equiv_mm": 0}, {"rho": -1}, {"rho": "nan"}):
+        r = client.post("/api/settings", json=body)
+        assert r.status_code == 400 and r.json()["detail"]
+        assert live.session["focal_equiv_mm"] == 23 and live.session["rho"] == 100
+    state = client.post("/api/settings", json={"focal_equiv_mm": "28", "taped_height_m": "1.5"}).json()
+    assert state["steps"]["lens"] is None and state["session"]["taped_height_m"] == 1.5
 
 
-def test_serve_can_start_at_another_focal(reports, recording):
+def test_serve_can_start_at_another_focal(reports, open_live):
     lens_of_focal(1170.0, 28, reports)
-    live = web.Live(recording[0], loop=True, focal=28)
-    try:
-        assert live.session["lens"]["fx"] == 1170.0 and ss.lens_of(live.session).focal_equiv_mm == 28
-        assert ln.saved_focals(str(reports), syn.STREAM) == [28.0]
-    finally:
-        live.close()
+    live = open_live(focal=28)
+    assert live.session["lens"]["fx"] == 1170.0 and ss.lens_of(live.session).focal_equiv_mm == 28
+    assert ln.saved_focals(str(reports), syn.STREAM) == [28.0]
 
 
 def test_a_bad_fit_does_not_replace_the_saved_lens(reports, recording):
@@ -470,9 +464,7 @@ def test_no_overlay_verdict_on_an_uncalibrated_cropped_frame(reports):
     cam = ov.aimed(ss.lens_of(session), ss.zone_of(session, ss.lens_of(session)), 0.45)
     z = ss.zone_of(session, cam.lens)
     corners, _ = ov.camera_square(cam, z)
-    uv, _ = cam.image_points(np.column_stack([corners, np.zeros(4)]))
-    session["cones"] = [{"name": n, "x": float(x), "y": float(y), "u": float(u), "v": float(v)}
-                        for n, (x, y), (u, v) in zip(ov.CORNERS, corners, uv)]
+    session["cones"] = session_cones(cam, dict(zip(ov.CORNERS, corners)))
     result, solved, _ = ss.evaluate(session)
     assert result["pose"]["solved"] and not result["overlay_allowed"] and result["steps"]["overlay"] is None
     frame = np.zeros((720, 1280, 3), np.uint8)
@@ -515,8 +507,7 @@ STEP = {"distance_m": 5.0, "frames": 10, "detected": 10, "rate": 1.0, "box_h_px"
     ([{**STEP, "detected": 0, "rate": 0.0, "box_h_px": float("nan")}], False),                             # never seen
 ])
 def test_detection_needs_90_percent_down_to_100_px(rows, expected):
-    frames = sum(r["frames"] for r in rows)
-    sweep = {"point_90": sw.point_90(rows), "frames": frames, "reliable_to_px": sw.reliable_to(rows)}
+    sweep = sw.summary(rows)
     json.dumps(sweep, allow_nan=False)                                   # goes to session.json and the page
     assert sw.detection_ok(sweep) is expected
 
@@ -545,21 +536,16 @@ def test_sweep_uses_the_apps_detector_settings_and_needs_a_pose(reports, tmp_pat
     assert session["sweep"]["frames"] > 0 and ss.evaluate(session)[0]["steps"]["detection"] is None
     text = rp.markdown(session, ss.evaluate(session)[0])
     assert "Not judged" in text and "| detection | not run |" in text
-    uv, _ = cam.image_points([[x, y, 0.0] for x, y in CONES.values()])
-    session["cones"] = [{"name": n, "x": x, "y": y, "u": float(u), "v": float(v)} for (n, (x, y)), (u, v) in zip(CONES.items(), uv)]
+    session["cones"] = session_cones(cam, CONES)
     assert ss.evaluate(session)[0]["steps"]["detection"] is False        # with a pose: never seen, so it fails
 
 
-def test_changing_focal_on_the_page_changes_the_lens(reports, recording):
-    lens = ln.FieldLens(syn.STREAM, 960.0, 960.0, 720, 540, rms=0.25, views=20, source="checkerboard")
-    ln.save(lens, str(reports), 23)
-    live = web.Live(recording[0], loop=True)
-    try:
-        client = TestClient(web.make_app(live))
-        assert client.get("/api/state").json()["steps"]["lens"] is True
-        state = client.post("/api/settings", json={"focal_equiv_mm": 28}).json()
-        assert state["steps"]["lens"] is None and live.session["lens"] is None
-        state = client.post("/api/settings", json={"focal_equiv_mm": 23}).json()
-        assert state["steps"]["lens"] is True
-    finally:
-        live.stop = True
+def test_changing_focal_on_the_page_changes_the_lens(reports, open_live):
+    lens_of_focal(960.0, 23, reports)
+    live = open_live()
+    client = TestClient(web.make_app(live))
+    assert client.get("/api/state").json()["steps"]["lens"] is True
+    state = client.post("/api/settings", json={"focal_equiv_mm": 28}).json()
+    assert state["steps"]["lens"] is None and live.session["lens"] is None
+    state = client.post("/api/settings", json={"focal_equiv_mm": 23}).json()
+    assert state["steps"]["lens"] is True
