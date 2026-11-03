@@ -57,11 +57,19 @@ The tool SHALL find the camera's pose from 4 to 8 cones whose ground positions t
 - **THEN** the solved height is within 2 cm and pitch within 0.3°
 
 ### Requirement: Square from the calibrated lens
-For a chosen required density ρ (default 100 px/m), the tool SHALL compute W_max, z_max, S and d with `tools.coverage.largest_zone` from the calibrated f/p and the received N, and place the square on the ground centred on the camera's forward line with its far edge at z_max.
+For a chosen required density ρ (default 100 px/m), the tool SHALL compute W_max, z_max, S and d with `tools.coverage.largest_zone` from the calibrated f/p and the received N (a preset with `taped_square` uses those marks instead, and one with `fit_zone` fits S and z_max to the tilted phone), and place the square on the ground centred on the camera's forward line with its far edge at z_max.
 
 #### Scenario: Default field test numbers (P01)
 - **WHEN** the nominal 23 mm lens and a 1440 × 1080 stream are used at ρ = 100 px/m
 - **THEN** z_max = 9.57 ± 0.05 m, W_max = 14.4 m, S = 5.75 ± 0.05 m and d = 6.69 ± 0.05 m
+
+#### Scenario: Square fitted to a low, tilted phone
+- **WHEN** a preset has `fit_zone` and no `taped_square` (ρ 380, phone at 0.45 m aimed at the square's centre)
+- **THEN** the far corners' 3D px/m equals ρ within 0.5 px/m, the near corners reach the frame's edge, and S is larger than the level-camera formula gives
+
+#### Scenario: Square already taped
+- **WHEN** a preset has `taped_square`
+- **THEN** the layout and the drawn square use those marks whatever the lens or ρ
 
 #### Scenario: Scale invariance (P02)
 - **WHEN** the solver runs for N = 1440 at ρ = 100 and for N = 4096 at ρ = 284.4

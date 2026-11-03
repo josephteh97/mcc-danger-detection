@@ -26,7 +26,7 @@ def new(size, source="", preset="default", phone=None, **settings):
     p = dict(phone["presets"][preset])
     p.update({k: v for k, v in settings.items() if v is not None})
     return {"source": source, "size": list(size), "preset": preset, "focal_equiv_mm": p["focal_equiv_mm"],
-            "rho": p["rho"], "taped_height_m": p.get("height_m"), "lens": None, "cones": [],
+            "rho": p["rho"], "taped_height_m": p.get("height_m"), "fit_zone": bool(p.get("fit_zone")), "taped_square": p.get("taped_square"), "lens": None, "cones": [],
             "measurements": [], "sensors": None, "pass": phone["pass"]}
 
 
@@ -71,7 +71,7 @@ def resume(path, fresh):
     try:
         old = load(path)
         if old["size"] == fresh["size"] and old["preset"] == fresh["preset"]:
-            return {**old, "source": fresh["source"]}
+            return {**fresh, **old, "source": fresh["source"]}
     except (ValueError, KeyError, TypeError):
         pass
     stem, ext = os.path.splitext(path)
@@ -87,7 +87,17 @@ def lens_of(session):
     return ln.FieldLens.pinhole(size, nominal_fp(size[0], session["focal_equiv_mm"]))
 
 
+def height_of(session):
+    return session.get("taped_height_m") or 1.5
+
+
 def zone_of(session, lens):
+    """The square: the one already taped if the preset names it, else fitted to a tilted phone, else
+    from the level-camera formulas. It stays put once the pose is solved: the markers are its truth."""
+    if session.get("taped_square"):
+        return ov.taped_zone(lens.fx, lens.size[0], lens.size[1], session["rho"], **session["taped_square"])
+    if session.get("fit_zone"):
+        return ov.fit_zone(lens, session["rho"], height_of(session))
     return ov.zone(lens.fx, lens.size[0], lens.size[1], session["rho"])
 
 
@@ -96,7 +106,7 @@ def camera_of(session, lens):
     height over the origin, aimed at the square's centre. Cones with no pose add the reason as
     `error`: a mistyped cone must not stop the page."""
     def assumed():
-        return {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
+        return {"camera": ov.aimed(lens, zone_of(session, lens), height_of(session)), "solved": False}
     if len(session["cones"]) < ps.MIN_CONES:
         return assumed()
     try:

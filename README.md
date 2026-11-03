@@ -211,7 +211,7 @@ Checks the coverage formulas (ρ = (f/p)/z, the largest square S and its centre 
 
 **Step-by-step for the office corridor:** `fieldtest/calibration.md`.
 
-**Phone without a 4:3 stream.** The Redmi Note 13 Pro in use streams from an RTSP app on port 1945 (`rtsp://USER:PASS@<phone>:1945/`, read over TCP) at 720p only, which is 16:9 and has no still or sensor endpoints. Calibrate the lens at 1280 × 720 before the overlay and use preset `rtsp720`, or `corridor` for a 1.8 × 2.5 m office corridor (ρ 380, phone at 0.45 m: S 1.39 m, z_far 2.37 m with the calibrated fx of 901 px); `fieldtest/calibration.md` walks through it. The detection sweep needs about 15 m and isn't run in the corridor.
+**Phone without a 4:3 stream.** The Redmi Note 13 Pro in use streams from an RTSP app on port 1945 (`rtsp://USER:PASS@<phone>:1945/`, read over TCP) at 720p only, which is 16:9 and has no still or sensor endpoints. Calibrate the lens at 1280 × 720 before the overlay and use preset `rtsp720`, or `corridor` for a 1.8 × 2.5 m office corridor (ρ 380, phone at 0.45 m and tilted down, using the square taped on the floor: ±0.71 m, z_far 2.37 m, d 1.68 m); `fieldtest/calibration.md` walks through it. The detection sweep needs about 15 m and isn't run in the corridor.
 
 ```bash
 python3 -m tools.fieldtest probe                     # frame size and fps; warns if the stream isn't 4:3

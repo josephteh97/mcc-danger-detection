@@ -3,6 +3,7 @@ sheet to tape out. The zone numbers come from `tools.coverage.largest_zone` (fov
 removes the main camera's distortion); the px/m at each corner from the full 3D projection."""
 from __future__ import annotations
 
+import json
 import math
 
 import cv2
@@ -21,6 +22,53 @@ def zone(fp, n, h, rho):
     s, d = largest_zone(camera_spec(fp, n, h), rho)["fov"]
     z_max = d + s / 2
     return {"rho": rho, "fp": fp, "n": n, "w_max": n / rho, "z_max": z_max, "s": s, "d": d, "near": z_max - s}
+
+
+def taped_zone(fp, n, h, rho, half_m, far_m, centre_m):
+    """The square already on the floor: its marks stay put whatever the lens or rho."""
+    return {**zone(fp, n, h, rho), "z_max": far_m, "s": 2 * half_m, "d": centre_m, "near": 2 * centre_m - far_m}
+
+
+_fitted = {}                                     # the page asks for the zone on every frame
+
+
+def fit_zone(lens, rho, height_m):
+    """The largest square a low, tilted phone really covers: the far edge where a corner's 3D px/m
+    falls to rho, the near corners on the frame's edge, for the phone at height_m aimed at the square's
+    centre. `zone` assumes a level camera, which leaves room on both counts. Falls back to it if no far
+    edge reaches rho."""
+    key = (json.dumps(lens.to_dict(), sort_keys=True), rho, height_m)
+    if key not in _fitted:
+        _fitted[key] = _fit_zone(lens, rho, height_m)
+    return _fitted[key]
+
+
+def _fit_zone(lens, rho, height_m, steps=24):
+    plan = zone(lens.fx, lens.size[0], lens.size[1], rho)
+
+    def between(near, far):
+        return {**plan, "z_max": far, "s": far - near, "d": (far + near) / 2, "near": near}
+
+    def widest(far):
+        """The square with this far edge whose near corners just stay in the frame."""
+        out, inside = 0.0, far
+        for _ in range(steps):
+            mid = (out + inside) / 2
+            box = zone_box(aimed(lens, between(mid, far), height_m), between(mid, far))
+            out, inside = (out, mid) if box and box["in_frame"] else (mid, inside)
+        return between(inside, far)
+
+    def density(z):
+        rows = corner_table(aimed(lens, z, height_m), z)[:2]
+        return min((r["px_per_m_3d"] or 0.0) for r in rows)
+
+    lo, hi = plan["z_max"] / 2, plan["z_max"] * 2
+    if density(widest(lo)) < rho:
+        return plan
+    for _ in range(steps):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if density(widest(mid)) >= rho else (lo, mid)
+    return widest(lo)
 
 
 def square(z, origin=(0.0, 0.0), heading_deg=0.0):

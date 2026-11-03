@@ -278,11 +278,10 @@ def test_zone_box_corridor(reports, capsys):
     corners S/2 · f/p / z_far either side of it; `zone` prints S, d, z_near, z_far and the box."""
     assert main(["zone", "--preset", "corridor"]) == 0
     out = capsys.readouterr().out
-    assert "S 1.34 m, d 1.57 m, z_near 0.89 m, z_far 2.24 m" in out and "nominal lens" in out and "inside the frame" in out
+    assert "S 1.42 m, d 1.68 m, z_near 0.99 m, z_far 2.37 m" in out and "nominal lens" in out and "inside the frame" in out
     lens = ss.lens_of(ss.new((1280, 720), preset="corridor"))
-    z = ov.zone(lens.fx, 1280, 720, 380)
+    z = ss.zone_of(ss.new((1280, 720), preset="corridor"), lens)
     assert z["s"] <= 1.8 and z["z_max"] <= 2.5
-    assert ov.zone(901.3, 1280, 720, 380)["z_max"] <= 2.4      # still fits with the phone's calibrated fx
     cam = ov.aimed(lens, z, 0.45)
     u, v = cam.image_points([[0.0, z["d"], 0.0]])[0][0]
     assert abs(u - 640) < 0.01 and abs(v - 360) < 0.01
@@ -291,6 +290,45 @@ def test_zone_box_corridor(reports, capsys):
     half = z["s"] / 2 * lens.fx / float(cam.R[2] @ ([0.0, z["z_max"], 0.0] - cam.pos))
     assert abs((far_r[0] - far_l[0]) / 2 - half) < 0.2
     assert box["in_frame"] and box["box_px"][0] == min(c[0] for c in box["corners_px"].values())
+
+
+@pytest.mark.parametrize("lens", [ln.FieldLens.pinhole((1280, 720), 850.0),
+                                  ln.FieldLens((1280, 720), 877.2, 875.5, 651.1, 357.6, (0.0672, -0.0989, 0.0, 0.0, 0.0),
+                                               rms=0.18, views=28, source="checkerboard")])
+def test_fitted_square_fills_the_frame_at_the_required_density(lens):
+    """A low tilted phone: the far corners read rho and the near corners reach the frame's edge,
+    so the square is bigger than the level-camera formula gives."""
+    z = ov.fit_zone(lens, 380, 0.45)
+    cam = ov.aimed(lens, z, 0.45)
+    rows = ov.corner_table(cam, z)
+    box = ov.zone_box(cam, z)
+    assert min(rows[0]["px_per_m_3d"], rows[1]["px_per_m_3d"]) == pytest.approx(380, abs=0.5)
+    assert box["in_frame"] and 1279 < box["box_px"][2] <= 1280
+    assert z["s"] > ov.zone(lens.fx, 1280, 720, 380)["s"] * 1.05
+    assert z["s"] == pytest.approx(z["z_max"] - z["near"]) and z["d"] == pytest.approx(z["z_max"] - z["s"] / 2)
+    assert ov.fit_zone(lens, 380, 0.45) is z             # worked out once: the page asks on every frame
+
+
+def test_the_taped_square_stays_put_and_replaces_the_fit(reports):
+    level = ss.new((1440, 1080))
+    assert ss.zone_of(level, ss.lens_of(level)) == ov.zone(ss.lens_of(level).fx, 1440, 1080, 100)
+    corridor = ss.new((1280, 720), preset="corridor")
+    corridor["rho"] = 500
+    sheet = ov.layout(ss.zone_of(corridor, ln.FieldLens.pinhole((1280, 720), 900.0)))
+    assert sheet["corners"] == {"far left": [-0.71, 2.37], "far right": [0.71, 2.37], "near right": [0.71, 0.99], "near left": [-0.71, 0.99]}
+    assert sheet["centre"] == [0.0, 1.68]
+    corridor["taped_square"] = None                      # no square on the floor yet: the fit, with its height
+    lens = ss.lens_of(corridor)
+    assert ss.zone_of(corridor, lens) == ov.fit_zone(lens, 500, 0.45)
+    corridor["taped_height_m"] = 0.6
+    assert ss.zone_of(corridor, lens) == ov.fit_zone(lens, 500, 0.6)
+
+
+def test_a_session_saved_before_the_fit_takes_it_up_on_restart(reports):
+    old = ss.new((1280, 720), preset="corridor")
+    del old["taped_square"]
+    path = ss.save(old, str(reports / "session.json"))
+    assert ss.resume(path, ss.new((1280, 720), preset="corridor"))["taped_square"]["far_m"] == 2.37
 
 
 def test_session_reports_the_box():

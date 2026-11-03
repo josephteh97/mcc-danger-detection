@@ -43,10 +43,16 @@ presets:                           # field-test setups (design.md D5); rho: requ
   # The phone's RTSP app (port 1945) streams 720p only (1080p and MAX greyed out), all 16:9: no 4:3
   # size, so the lens is calibrated at 1280 × 720 before the overlay (task 1.3).
   rtsp720: { focal_equiv_mm: 23, frame_px: [1280, 720], rho: 100, height_m: 1.5 }
-  # The rtsp720 setup shrunk to a 1.8 × 2.5 m office corridor: ρ 380 keeps z_max inside 2.5 m with the
-  # calibrated fx (901 px: z_max 2.37 m, S 1.39 m; nominal 850 px: 2.24 m),
-  # the phone at 0.45 m keeps the default's view down onto the square (1.5 m over 8.5 m, scaled).
-  corridor: { focal_equiv_mm: 23, frame_px: [1280, 720], rho: 380, height_m: 0.45 }
+  # The rtsp720 setup shrunk to a 1.8 × 2.5 m office corridor, the phone at 0.45 m and tilted down.
+  # taped_square is the square already marked on the floor. Without it, fit_zone gives the largest
+  # square for the tilted phone at rho, to re-tape from (design.md D11).
+  corridor:
+    focal_equiv_mm: 23
+    frame_px: [1280, 720]
+    rho: 380
+    height_m: 0.45
+    fit_zone: true
+    taped_square: { half_m: 0.71, far_m: 2.37, centre_m: 1.68 }
 
 # Pass bands (design.md D6)
 pass:

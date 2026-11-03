@@ -2,7 +2,8 @@
 
 What you do with the phone in a 1.8 × 2.5 m office corridor, from the stream to the report. It
 checks the coverage maths (ρ = (f/p)/z, the square S and its centre d) with a real lens. The
-detection sweep needs about 15 m and is not part of this test.
+`corridor` preset uses the square already taped on the floor (`taped_square` in `fieldtest/phone.yaml`).
+The detection sweep needs about 15 m and is not part of this test.
 
 Settings used: phone stream 1280 × 720 (16:9), preset `corridor` (ρ 380 px/m, phone at 0.45 m),
 A3 checkerboard with 10 × 7 squares (9 × 6 inner corners) of 36 mm.
@@ -149,28 +150,26 @@ them from the page's `layout:` line, or print them with
    of the corridor.
 2. Mark a straight line from it down the middle of the corridor: that's **y** (ahead). **x** is
    to the right, looking along the line.
-3. Mark the five points (metres). For example, with fx = 901 px (the first calibration of this
-   phone) and ρ 380:
+3. Mark the five points (metres):
 
    | Marker | x (right) | y (ahead) |
    |---|---|---|
-   | far left | −0.70 | 2.37 |
-   | far right | +0.70 | 2.37 |
-   | near right | +0.70 | 0.98 |
-   | near left | −0.70 | 0.98 |
+   | far left | −0.71 | 2.37 |
+   | far right | +0.71 | 2.37 |
+   | near right | +0.71 | 0.99 |
+   | near left | −0.71 | 0.99 |
    | centre | 0 | 1.68 |
 
-   The four corners make the square S = 1.39 m, from z_near 0.98 m to z_far 2.37 m, with its
-   centre at d = 1.68 m. Use the numbers the tool prints for your calibration if they differ. Use
-   small tape crosses and click their middle later.
+   These stay the same whatever the lens or ρ. The picture's px/m labels show what the lens really
+   gives on them. Use small tape crosses and click their middle later. To tape the largest square
+   for a given ρ instead, remove `taped_square` from the preset and take the numbers from the page.
 
 ## 3. Set up the phone
 
 1. Put the phone's lens **directly over the origin**. The tool draws the square from where the
    phone really is, so an offset phone gives a shifted square.
-2. Turn the phone so the **centre marker is in the left–right middle of the picture** (u ≈ 640
-   px). Then the phone looks straight along the line. Up–down position doesn't matter as long as
-   all five markers are in the picture.
+2. Aim the phone so the **centre marker is in the middle of the picture**, both left–right and
+   up–down. With another tilt the corners still land on the markers, but the px/m labels change.
 3. **Measure the lens height** from the floor. If it isn't 0.45 m, type it into **taped height**
    on the page and press **Apply**.
 4. Don't touch the phone from now on.
@@ -183,12 +182,12 @@ markers and click them again.
 
 1. Press **Cone**.
 2. For each marker:
-   1. Type its **x** and **y** in the boxes (they keep the last values: change them every time).
-   2. Pick its **name** from the list (far left, far right, near right, near left). The centre
-      marker has no name: leave it blank.
-   3. Click the **middle of the marker** on the picture.
+   1. Pick its **name** from the list (far left, far right, near right, near left, centre). This
+      fills **x** and **y** from the layout. If you taped a marker elsewhere, type where it really is.
+      For a marker that isn't one of the five, pick **other** and type its x and y.
+   2. Click the **middle of the marker** on the picture.
 3. A wrong click: press **Undo cone** and click it again.
-   If the markers give no pose (x and y not retyped, or typed wrong), the panel says `pose: NOT
+   If the markers give no pose (x and y typed wrong), the panel says `pose: NOT
    SOLVED` with the reason and the picture keeps running: undo the markers from the wrong one on.
 4. After four markers the panel shows the pose: `height … m pitch … roll … heading … reproj … px`.
    Click the centre marker too: five markers give a better pose.
