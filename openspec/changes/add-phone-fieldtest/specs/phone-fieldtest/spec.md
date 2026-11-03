@@ -69,7 +69,7 @@ For a chosen required density ρ (default 100 px/m), the tool SHALL compute W_ma
 
 #### Scenario: Square already taped
 - **WHEN** a preset has `taped_square`
-- **THEN** the layout and the drawn square use those marks whatever the lens or ρ
+- **THEN** the layout and the drawn square use those marks whatever the lens, ρ or the solved phone position
 
 #### Scenario: Scale invariance (P02)
 - **WHEN** the solver runs for N = 1440 at ρ = 100 and for N = 4096 at ρ = 284.4

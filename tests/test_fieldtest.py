@@ -324,6 +324,22 @@ def test_the_taped_square_stays_put_and_replaces_the_fit(reports):
     assert ss.zone_of(corridor, lens) == ov.fit_zone(lens, 500, 0.6)
 
 
+def test_the_taped_square_is_drawn_on_its_marks_when_the_phone_is_off_the_origin(reports):
+    """A phone 10 cm forward, 4 cm left and turned 2°: the square stays on the tape, not ahead of the phone."""
+    session = ss.new((1280, 720), preset="corridor")
+    lens = ss.lens_of(session)
+    cam = ln.FieldCamera([-0.04, 0.10, 0.45], ln.rotation(16.0, 2.0, -2.0), lens)
+    marks = {"far left": (-0.71, 2.37), "far right": (0.71, 2.37), "near right": (0.71, 0.99), "near left": (-0.71, 0.99)}
+    session["cones"] = session_cones(cam, marks)
+    session["lens"] = {**lens.to_dict(), "source": "checkerboard", "rms": 0.2}
+    result, solved, z = ss.evaluate(session)
+    assert np.allclose(ov.camera_square(solved, z)[0], list(marks.values()))
+    assert all(r["off_px"] < 0.5 for r in result["overlay"]["rows"]) and result["steps"]["overlay"] is True
+    wide = ss.new((1280, 720))
+    assert not np.allclose(ov.camera_square(solved, ss.zone_of(wide, lens))[0][:, 0].mean(), 0.0)   # untaped: ahead of the phone
+    assert ov.draw(np.zeros((720, 1280, 3), np.uint8), solved, z).any()
+
+
 def test_a_session_saved_before_the_fit_takes_it_up_on_restart(reports):
     old = ss.new((1280, 720), preset="corridor")
     del old["taped_square"]

@@ -26,7 +26,7 @@ def zone(fp, n, h, rho):
 
 def taped_zone(fp, n, h, rho, half_m, far_m, centre_m):
     """The square already on the floor: its marks stay put whatever the lens or rho."""
-    return {**zone(fp, n, h, rho), "z_max": far_m, "s": 2 * half_m, "d": centre_m, "near": 2 * centre_m - far_m}
+    return {**zone(fp, n, h, rho), "z_max": far_m, "s": 2 * half_m, "d": centre_m, "near": 2 * centre_m - far_m, "taped": True}
 
 
 _fitted = {}                                     # the page asks for the zone on every frame
@@ -87,8 +87,8 @@ def _along(a, b, steps):
 
 
 def camera_square(cam, z):
-    """The square straight ahead of this camera."""
-    return square(z, cam.pos[:2], cam.heading_deg)
+    """The square straight ahead of this camera or, once taped, where it is on the floor."""
+    return square(z) if z.get("taped") else square(z, cam.pos[:2], cam.heading_deg)
 
 
 def layout(z):
@@ -225,8 +225,9 @@ def draw(frame, cam, z, grid_m=1.0):
     for y in np.arange(math.ceil(max(lo[1], 0.3)), math.ceil(hi[1]) + 1, grid_m):
         _poly(img, cam, [[lo[0], y], [hi[0], y]], GRID, closed=False, thickness=1)
     _poly(img, cam, fp_poly, CYAN, thickness=1)
-    o, fwd, right = cam.pos[:2], *cam.ground_axes()
-    wl = [o + fwd * z["z_max"] - right * z["w_max"] / 2, o + fwd * z["z_max"] + right * z["w_max"] / 2]
+    far, along = corners[:2].mean(axis=0), corners[1] - corners[0]
+    half_w = along / np.linalg.norm(along) * z["w_max"] / 2
+    wl = [far - half_w, far + half_w]
     _poly(img, cam, wl, YELLOW, closed=False)
     _poly(img, cam, corners, GREEN, thickness=3)
     tilted = abs(cam.pitch_deg) > 1.0

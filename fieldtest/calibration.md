@@ -160,14 +160,16 @@ them from the page's `layout:` line, or print them with
    | near left | −0.71 | 0.99 |
    | centre | 0 | 1.68 |
 
-   These stay the same whatever the lens or ρ. The picture's px/m labels show what the lens really
+   These stay the same whatever the lens, ρ or the phone's position: the square is drawn on the
+   marks. The picture's px/m labels show what the lens really
    gives on them. Use small tape crosses and click their middle later. To tape the largest square
    for a given ρ instead, remove `taped_square` from the preset and take the numbers from the page.
 
 ## 3. Set up the phone
 
-1. Put the phone's lens **directly over the origin**. The tool draws the square from where the
-   phone really is, so an offset phone gives a shifted square.
+1. Put the phone's lens **directly over the origin**. A taped square stays on its marks if the
+   phone is a little off, but the px/m labels are for where the phone really is. Without
+   `taped_square`, the square is drawn ahead of the phone, so an offset phone shifts it.
 2. Aim the phone so the **centre marker is in the middle of the picture**, both left–right and
    up–down. With another tilt the corners still land on the markers, but the px/m labels change.
 3. **Measure the lens height** from the floor. If it isn't 0.45 m, type it into **taped height**
