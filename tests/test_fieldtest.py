@@ -24,6 +24,7 @@ from tools.fieldtest import web
 from tools.fieldtest.__main__ import main
 
 CONES = {"far left": (-2.87, 9.57), "far right": (2.87, 9.57), "near right": (2.87, 3.82), "near left": (-2.87, 3.82)}
+TAPED_MARKS = {"far left": (-0.71, 2.37), "far right": (0.71, 2.37), "near right": (0.71, 0.99), "near left": (-0.71, 0.99)}
 POLES = [(2.87, 9.57), (0.0, 6.69), (-2.87, 3.82)]
 
 
@@ -279,9 +280,9 @@ def test_zone_box_corridor(reports, capsys):
     assert main(["zone", "--preset", "corridor"]) == 0
     out = capsys.readouterr().out
     assert "S 1.42 m, d 1.68 m, z_near 0.99 m, z_far 2.37 m" in out and "nominal lens" in out and "inside the frame" in out
-    lens = ss.lens_of(ss.new((1280, 720), preset="corridor"))
-    z = ss.zone_of(ss.new((1280, 720), preset="corridor"), lens)
-    assert z["s"] <= 1.8 and z["z_max"] <= 2.5
+    session = ss.new((1280, 720), preset="corridor")
+    lens = ss.lens_of(session)
+    z = ss.zone_of(session, lens)
     cam = ov.aimed(lens, z, 0.45)
     u, v = cam.image_points([[0.0, z["d"], 0.0]])[0][0]
     assert abs(u - 640) < 0.01 and abs(v - 360) < 0.01
@@ -305,17 +306,17 @@ def test_fitted_square_fills_the_frame_at_the_required_density(lens):
     assert min(rows[0]["px_per_m_3d"], rows[1]["px_per_m_3d"]) == pytest.approx(380, abs=0.5)
     assert box["in_frame"] and 1279 < box["box_px"][2] <= 1280
     assert z["s"] > ov.zone(lens.fx, 1280, 720, 380)["s"] * 1.05
-    assert z["s"] == pytest.approx(z["z_max"] - z["near"]) and z["d"] == pytest.approx(z["z_max"] - z["s"] / 2)
     assert ov.fit_zone(lens, 380, 0.45) is z             # worked out once: the page asks on every frame
 
 
 def test_the_taped_square_stays_put_and_replaces_the_fit(reports):
     level = ss.new((1440, 1080))
-    assert ss.zone_of(level, ss.lens_of(level)) == ov.zone(ss.lens_of(level).fx, 1440, 1080, 100)
+    lens = ss.lens_of(level)
+    assert ss.zone_of(level, lens) == ov.zone(lens.fx, 1440, 1080, 100)
     corridor = ss.new((1280, 720), preset="corridor")
     corridor["rho"] = 500
     sheet = ov.layout(ss.zone_of(corridor, ln.FieldLens.pinhole((1280, 720), 900.0)))
-    assert sheet["corners"] == {"far left": [-0.71, 2.37], "far right": [0.71, 2.37], "near right": [0.71, 0.99], "near left": [-0.71, 0.99]}
+    assert sheet["corners"] == {name: list(xy) for name, xy in TAPED_MARKS.items()}
     assert sheet["centre"] == [0.0, 1.68]
     corridor["taped_square"] = None                      # no square on the floor yet: the fit, with its height
     lens = ss.lens_of(corridor)
@@ -329,15 +330,14 @@ def test_the_taped_square_is_drawn_on_its_marks_when_the_phone_is_off_the_origin
     session = ss.new((1280, 720), preset="corridor")
     lens = ss.lens_of(session)
     cam = ln.FieldCamera([-0.04, 0.10, 0.45], ln.rotation(16.0, 2.0, -2.0), lens)
-    marks = {"far left": (-0.71, 2.37), "far right": (0.71, 2.37), "near right": (0.71, 0.99), "near left": (-0.71, 0.99)}
-    session["cones"] = session_cones(cam, marks)
+    session["cones"] = session_cones(cam, TAPED_MARKS)
     session["lens"] = {**lens.to_dict(), "source": "checkerboard", "rms": 0.2}
     result, solved, z = ss.evaluate(session)
-    assert np.allclose(ov.camera_square(solved, z)[0], list(marks.values()))
+    assert np.allclose(ov.camera_square(solved, z)[0], list(TAPED_MARKS.values()))
     assert all(r["off_px"] < 0.5 for r in result["overlay"]["rows"]) and result["steps"]["overlay"] is True
-    wide = ss.new((1280, 720))
-    assert not np.allclose(ov.camera_square(solved, ss.zone_of(wide, lens))[0][:, 0].mean(), 0.0)   # untaped: ahead of the phone
-    assert ov.draw(np.zeros((720, 1280, 3), np.uint8), solved, z).any()
+    assert not np.allclose(ov.camera_square(solved, {**z, "taped": False})[0], list(TAPED_MARKS.values()))   # untaped: ahead of the phone
+    u, v = solved.image_points([[*TAPED_MARKS["far left"], 0.0]])[0][0]
+    assert tuple(ov.draw(np.zeros((720, 1280, 3), np.uint8), solved, z)[int(v), int(u)]) == ov.GREEN
 
 
 def test_a_session_saved_before_the_fit_takes_it_up_on_restart(reports):

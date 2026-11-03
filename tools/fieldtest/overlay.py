@@ -3,7 +3,6 @@ sheet to tape out. The zone numbers come from `tools.coverage.largest_zone` (fov
 removes the main camera's distortion); the px/m at each corner from the full 3D projection."""
 from __future__ import annotations
 
-import json
 import math
 
 import cv2
@@ -14,6 +13,8 @@ from tools.fieldtest import camera_spec
 from tools.fieldtest.lens import FieldCamera
 
 CORNERS = ("far left", "far right", "near right", "near left")      # the order `square` returns
+SQUARE_NUMBERS = ("w_max", "z_max", "s", "d", "near")
+ZONE_NUMBERS = ("rho", "fp", "n", *SQUARE_NUMBERS)                   # a zone's other keys aren't numbers
 GREEN, YELLOW, CYAN, WHITE, GRID = (60, 220, 60), (0, 220, 255), (255, 220, 0), (255, 255, 255), (200, 130, 230)
 
 
@@ -24,9 +25,9 @@ def zone(fp, n, h, rho):
     return {"rho": rho, "fp": fp, "n": n, "w_max": n / rho, "z_max": z_max, "s": s, "d": d, "near": z_max - s}
 
 
-def taped_zone(fp, n, h, rho, half_m, far_m, centre_m):
+def taped_zone(lens, rho, half_m, far_m, centre_m):
     """The square already on the floor: its marks stay put whatever the lens or rho."""
-    return {**zone(fp, n, h, rho), "z_max": far_m, "s": 2 * half_m, "d": centre_m, "near": 2 * centre_m - far_m, "taped": True}
+    return {**zone(lens.fx, *lens.size, rho), "z_max": far_m, "s": 2 * half_m, "d": centre_m, "near": 2 * centre_m - far_m, "taped": True}
 
 
 _fitted = {}                                     # the page asks for the zone on every frame
@@ -37,26 +38,34 @@ def fit_zone(lens, rho, height_m):
     falls to rho, the near corners on the frame's edge, for the phone at height_m aimed at the square's
     centre. `zone` assumes a level camera, which leaves room on both counts. Falls back to it if no far
     edge reaches rho."""
-    key = (json.dumps(lens.to_dict(), sort_keys=True), rho, height_m)
+    key = (str(lens.to_dict()), rho, height_m)
     if key not in _fitted:
         _fitted[key] = _fit_zone(lens, rho, height_m)
     return _fitted[key]
 
 
-def _fit_zone(lens, rho, height_m, steps=24):
-    plan = zone(lens.fx, lens.size[0], lens.size[1], rho)
+def _bisect(good, bad, ok, steps=24):
+    """The last point found where ok holds, between good (it does) and bad (it doesn't)."""
+    for _ in range(steps):
+        mid = (good + bad) / 2
+        good, bad = (mid, bad) if ok(mid) else (good, mid)
+    return good
+
+
+def _fit_zone(lens, rho, height_m):
+    plan = zone(lens.fx, *lens.size, rho)
 
     def between(near, far):
         return {**plan, "z_max": far, "s": far - near, "d": (far + near) / 2, "near": near}
 
+    def fits(near, far):
+        z = between(near, far)
+        box = zone_box(aimed(lens, z, height_m), z)
+        return box and box["in_frame"]
+
     def widest(far):
         """The square with this far edge whose near corners just stay in the frame."""
-        out, inside = 0.0, far
-        for _ in range(steps):
-            mid = (out + inside) / 2
-            box = zone_box(aimed(lens, between(mid, far), height_m), between(mid, far))
-            out, inside = (out, mid) if box and box["in_frame"] else (mid, inside)
-        return between(inside, far)
+        return between(_bisect(far, 0.0, lambda near: fits(near, far)), far)
 
     def density(z):
         rows = corner_table(aimed(lens, z, height_m), z)[:2]
@@ -65,10 +74,7 @@ def _fit_zone(lens, rho, height_m, steps=24):
     lo, hi = plan["z_max"] / 2, plan["z_max"] * 2
     if density(widest(lo)) < rho:
         return plan
-    for _ in range(steps):
-        mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if density(widest(mid)) >= rho else (lo, mid)
-    return widest(lo)
+    return widest(_bisect(lo, hi, lambda far: density(widest(far)) >= rho))
 
 
 def square(z, origin=(0.0, 0.0), heading_deg=0.0):
@@ -99,7 +105,7 @@ def layout(z):
             "centre": [0.0, round(float(centre[1]), 2)],
             "w_max_points": [[-round(z["w_max"] / 2, 2), round(z["z_max"], 2)], [round(z["w_max"] / 2, 2), round(z["z_max"], 2)]],
             "forward_marks": marks,
-            "numbers": {k: round(float(z[k]), 2) for k in ("z_max", "w_max", "s", "d", "near")}}
+            "numbers": {k: round(float(z[k]), 2) for k in SQUARE_NUMBERS}}
 
 
 def describe_layout(sheet):
@@ -225,10 +231,7 @@ def draw(frame, cam, z, grid_m=1.0):
     for y in np.arange(math.ceil(max(lo[1], 0.3)), math.ceil(hi[1]) + 1, grid_m):
         _poly(img, cam, [[lo[0], y], [hi[0], y]], GRID, closed=False, thickness=1)
     _poly(img, cam, fp_poly, CYAN, thickness=1)
-    far, along = corners[:2].mean(axis=0), corners[1] - corners[0]
-    half_w = along / np.linalg.norm(along) * z["w_max"] / 2
-    wl = [far - half_w, far + half_w]
-    _poly(img, cam, wl, YELLOW, closed=False)
+    _poly(img, cam, camera_square(cam, {**z, "s": z["w_max"]})[0][:2], YELLOW, closed=False)
     _poly(img, cam, corners, GREEN, thickness=3)
     tilted = abs(cam.pitch_deg) > 1.0
     for row, (x, y) in zip(corner_table(cam, z), corners):

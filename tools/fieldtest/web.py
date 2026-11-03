@@ -308,13 +308,13 @@ name <select id="cname" onchange="marker()"><option>far left</option><option>far
 <button onclick="post('/api/report').then(r=>r&&alert('Report: '+r.report))">Write report</button></fieldset>
 <pre id="out"></pre></aside></main>
 <script>
-let M='cone', first=null, S=null, filled=false;
+let M='cone', first=null, S=null;
 const $=id=>document.getElementById(id);
 function mode(m){M=m;first=null;$('hint').textContent='mode: '+m;}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
  const j=await r.json().catch(()=>({})); if(!r.ok){alert(j.detail||r.statusText);return null;} if(j.session)show(j); return j;}
 function settings(){post('/api/settings',{rho:$('rho').value,focal_equiv_mm:$('focal').value,taped_height_m:$('height').value}).then(r=>r&&marker());}
-function marker(){const l=S&&S.layout,n=$('cname').value; if(!l)return; const p=n==='centre'?l.centre:l.corners[n]; if(p){$('cx').value=p[0];$('cy').value=p[1];}}
+function marker(){const l=S&&S.layout,n=$('cname').value,p=l&&(n==='centre'?l.centre:l.corners[n]); if(p){$('cx').value=p[0];$('cy').value=p[1];}}
 function toggleOverlay(){const on=$('ov').textContent!=='Overlay on'; $('ov').textContent=on?'Overlay on':'Overlay off'; post('/api/settings',{overlay:on});}
 function record(){const on=!(S&&S.recording); post('/api/record',{on});}
 $('pic').addEventListener('click',e=>{const im=e.target, r=im.getBoundingClientRect();
@@ -323,8 +323,8 @@ $('pic').addEventListener('click',e=>{const im=e.target, r=im.getBoundingClientR
  else if(!first){first=[u,v];$('hint').textContent='now click the top';}
  else{post('/api/measure',{bottom:first,top:[u,v],length_m:$('len').value,label:$('lab').value});first=null;$('hint').textContent='mode: measure';}});
 const num=(v,d)=>v==null?'-':v.toFixed(d);
-function show(s){S=s; const ss=s.session;
- if(!filled){filled=true;$('rho').value=ss.rho;$('focal').value=ss.focal_equiv_mm;$('height').value=ss.taped_height_m??'';marker();}
+function show(s){const fresh=!S; S=s; const ss=s.session;
+ if(fresh){$('rho').value=ss.rho;$('focal').value=ss.focal_equiv_mm;$('height').value=ss.taped_height_m??'';marker();}
  const kept=Object.keys(ss.parked||{}).map(f=>f+' mm').join(', ');
  $('warn').textContent=(s.warnings||[]).join(' · ')+(s.overlay_allowed?'':' Overlay off until the lens is calibrated at this size.')+(kept?` Clicks at ${kept} are kept for when you set it back.`:'');
  $('pitch').textContent=s.pitch; $('rec').textContent=s.recording?'Stop recording':'Record';

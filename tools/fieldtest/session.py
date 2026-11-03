@@ -95,10 +95,10 @@ def zone_of(session, lens):
     """The square: the one already taped if the preset names it, else fitted to a tilted phone, else
     from the level-camera formulas. It stays put once the pose is solved: the markers are its truth."""
     if session.get("taped_square"):
-        return ov.taped_zone(lens.fx, lens.size[0], lens.size[1], session["rho"], **session["taped_square"])
+        return ov.taped_zone(lens, session["rho"], **session["taped_square"])
     if session.get("fit_zone"):
         return ov.fit_zone(lens, session["rho"], height_of(session))
-    return ov.zone(lens.fx, lens.size[0], lens.size[1], session["rho"])
+    return ov.zone(lens.fx, *lens.size, session["rho"])
 
 
 def camera_of(session, lens):
@@ -140,7 +140,7 @@ def evaluate(session):
     else:
         out["steps"]["pose"] = False if "error" in pose else None
     z = zone_of(session, lens)
-    out["zone"] = {k: round(float(v), 4) for k, v in z.items()}
+    out["zone"] = {k: round(float(z[k]), 4) for k in ov.ZONE_NUMBERS}
     out["layout"] = ov.layout(z)
     out["corners"] = ov.corner_table(cam, z)
     out["box"] = ov.zone_box(cam, z)
