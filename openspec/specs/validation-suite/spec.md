@@ -2,13 +2,15 @@
 
 ## Purpose
 TBD - created by archiving change add-digital-twin-phase1. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Quick checks
-The twin SHALL provide six quick-check scripts that need no Docker stack. They SHALL run in a Python virtual environment with:
+The twin SHALL provide seven quick-check scripts that need no Docker stack. They SHALL run in a Python virtual environment with:
 
-`python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py`
+`python3 tests/smoke.py && python3 tests/smoke_links.py && python3 tests/smoke_weather.py && python3 tests/smoke_catalog.py && python3 tests/smoke_trial.py && python3 tests/smoke_v11.py && python3 tests/smoke_fieldtest.py`
 
-The first five scripts SHALL run on the phase-1 profile whatever `site.yaml` selects. Together the six SHALL run exactly these 53 named checks:
+The first five scripts SHALL run on the phase-1 profile whatever `site.yaml` selects. `smoke_fieldtest.py` needs no phone or network; it uses a synthetic camera. Together the seven SHALL run exactly these 64 named checks:
 
 | Script | Checks |
 |---|---|
@@ -18,12 +20,13 @@ The first five scripts SHALL run on the phase-1 profile whatever `site.yaml` sel
 | `smoke_catalog.py` | V23, V24, V25, V26, V27, V28, U09 (every catalogue file validates and site.yaml fits) |
 | `smoke_trial.py` | V29, V30, V31, V32, V33, V34, U10 (two workers: laser follows the one inside; reset only when both are clear) |
 | `smoke_v11.py` | U11 (distortion q and D), U12 (ring density with tiles), U13 (shrunken input fails as expected), U14 (largest-zone solver), U15 (pose inside windows), U16 (stand too close flagged), U17 (PoE budget), U18 (undersized switch fails as expected), U19 (4G data), U20 (PoE++ losses), U21 (continuous load), U22 (Plan B 3 overcast days), U23 (Plan A weekend shutdown order), U24 (no identity in v11), U25 (watchdog restart, model only), U26 (laser reach) |
+| `smoke_fieldtest.py` | P01 (phone solver numbers), P02 (scale invariance), P03 (projection round trip), P04 (pose from synthetic cones), P05 (synthetic checkerboard calibration), P06 (level pole density), P07 (near corners on the image edge), P08 (measurement pass bands), P09 (16:9 stream flagged), P10 (page binds to loopback), P11 (D recovered from a synthetic distorted camera) |
 
 U13 and U18 SHALL pass when the bad configuration is correctly rejected. Each check SHALL print one line: its ID, PASS or FAIL, the measured value and the pass criterion.
 
 #### Scenario: Expected result
 - **WHEN** the quick-check chain runs on a host with the Python dependencies installed
-- **THEN** 52 checks print PASS
+- **THEN** 63 checks print PASS
 - **AND** V11 prints FAIL with "runs flat", marked as a known fail (second finding)
 - **AND** the whole chain completes
 
@@ -117,4 +120,3 @@ Every check V01–V34 in the guide's validation matrix SHALL map to exactly one 
 #### Scenario: Every ID has a test
 - **WHEN** the tests are listed
 - **THEN** each of V01–V34 is the ID of exactly one test
-
