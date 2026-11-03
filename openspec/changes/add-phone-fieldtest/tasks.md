@@ -56,10 +56,11 @@
 
 ## 9. Field run (with the phone)
 
-- [ ] 9.1 Lock focus far; calibrate at the chosen stream size
-- [ ] 9.1a Office run: office preset (ρ ≈ 680, phone at 0.9 m), tape the 2.4 m square, check overlay and pole measurements
-- [ ] 9.2 Level run (outdoor): phone at 1.5 m, ρ = 100, tape the layout sheet, solve pose, check overlay on cones, measure a 1 m pole at the four corners, the centre and on the forward line every 1 m
-- [ ] 9.3 Tilted run: about 10° down; repeat the corner and centre measurements
-- [ ] 9.4 Optional: 28 and 35 mm modes, full-resolution stills, detection sweep with a squatting person
-- [ ] 9.4a Ultra-wide: switch off ultra-wide distortion correction in the phone's camera settings; take 15 checkerboard photos and two 1 m pole photos (centre and edge, same depth); run the distortion test
-- [ ] 9.5 Commit the report summary (not the footage) and delete recordings showing people
+- [x] 9.1 Lock focus far; calibrate at the chosen stream size (1280 × 720: fx 877.2 px, 0.18 px; focus lock not recorded)
+- [x] 9.1b Corridor run instead of the outdoor runs: `fieldtest/results-corridor-2026-11-03.md`. The formula held to about 1% across the floor; pose failed its band; no stick measured
+- [ ] 9.1a Not run, experiment closed on 9.1b. Office run: office preset (ρ ≈ 680, phone at 0.9 m), tape the 2.4 m square, check overlay and pole measurements
+- [ ] 9.2 Not run, experiment closed on 9.1b. Level run (outdoor): phone at 1.5 m, ρ = 100, tape the layout sheet, solve pose, check overlay on cones, measure a 1 m pole at the four corners, the centre and on the forward line every 1 m
+- [ ] 9.3 Not run, experiment closed on 9.1b. Tilted run: about 10° down; repeat the corner and centre measurements
+- [ ] 9.4 Not run, experiment closed on 9.1b. Optional: 28 and 35 mm modes, full-resolution stills, detection sweep with a squatting person
+- [ ] 9.4a Not run, experiment closed on 9.1b. Ultra-wide: switch off ultra-wide distortion correction in the phone's camera settings; take 15 checkerboard photos and two 1 m pole photos (centre and edge, same depth); run the distortion test
+- [x] 9.5 Commit the report summary (not the footage) and delete recordings showing people (none kept)
