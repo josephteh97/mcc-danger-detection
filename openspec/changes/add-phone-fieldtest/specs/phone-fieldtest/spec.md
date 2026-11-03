@@ -44,6 +44,10 @@ The tool SHALL find the camera's pose from 4 to 8 cones whose ground positions t
 - **WHEN** the phone is level 1.5 m above the ground and four cones are clicked
 - **THEN** the solved height is within 5 cm of 1.5 m, pitch within 1° of 0°, and every cone reprojects within 2 px
 
+#### Scenario: Cones with no pose
+- **WHEN** four or more cones give no pose (repeated, on one line, or solved below the ground)
+- **THEN** the pose step reads FAIL with the reason, the picture keeps running with the assumed camera, and undoing a cone recovers
+
 #### Scenario: Synthetic pose (P04)
 - **WHEN** cones are projected through a synthetic camera 1.5 m high and 8° down, with 0.5 px noise added
 - **THEN** the solved height is within 2 cm and pitch within 0.3°
@@ -65,6 +69,10 @@ The tool SHALL draw on the live picture the camera's ground footprint, the W_max
 #### Scenario: Near corners on the image edge (P07)
 - **WHEN** a synthetic level camera draws the square
 - **THEN** the two near corners fall on the left and right image edges within 1 px, and the far edge lies at z_max
+
+#### Scenario: Corner density beyond the lens fit
+- **WHEN** a 1 m pole at a corner has its top outside the calibrated part of the image
+- **THEN** the corner's 3D px/m is the density just above the ground, not the pole through the distortion polynomial
 
 #### Scenario: Live overlay on the cones
 - **WHEN** cones are taped at the four corners from the layout sheet and the overlay is on
@@ -96,6 +104,10 @@ The user SHALL be able to click the two ends of a vertical object (a 1 m pole, o
 - **WHEN** a measurement or a named cone is clicked before the pose is solved (fewer than 4 cones)
 - **THEN** the rows are kept, worked out from the camera aimed at the square's centre, and their result and the overlay and density steps read "not run", neither PASS nor FAIL
 
+#### Scenario: Base the camera can't place
+- **WHEN** a measurement's base is above the horizon of the current camera
+- **THEN** a new click is refused if the pose is solved; a row already saved stays, with no prediction, reading FAIL with a solved pose and "not run" without one, and the page keeps working
+
 #### Scenario: Pass-band logic (P08)
 - **WHEN** the measurement log holds a 3% error, a 7% error and a 1 px error on a 15 px object
 - **THEN** they are marked PASS, FAIL and PASS
@@ -109,6 +121,14 @@ The tool SHALL optionally run the twin's YOLO person detector (`app.detect`, sam
 
 ### Requirement: Record and replay
 The tool SHALL record the stream to a file in `reports/fieldtest/<date>/` and every step (calibration, pose, overlay, measurement, sweep) SHALL run on a recording as well as live.
+
+#### Scenario: Restarting the page keeps the session
+- **WHEN** the page restarts on the same day with the same frame size and preset
+- **THEN** it continues the saved `session.json` with its clicks; with another preset, or a file it can't read, it starts anew and moves the old file aside, never overwriting it
+
+#### Scenario: Stopping a recording
+- **WHEN** a recording is stopped on the page, or the page exits while recording
+- **THEN** the file plays, and on the page another recording can start
 
 #### Scenario: Replay matches live
 - **WHEN** a recorded session is replayed with the same clicks

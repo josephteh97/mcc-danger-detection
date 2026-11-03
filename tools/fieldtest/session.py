@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import numpy as np
 
@@ -45,6 +46,22 @@ def load(path):
         return json.load(f)
 
 
+def resume(path, fresh):
+    """The session saved at `path` if it is the same setup as `fresh` (frame size and preset), so
+    restarting the page keeps the clicks. Any other file is moved aside, never overwritten."""
+    if not os.path.exists(path):
+        return fresh
+    try:
+        old = load(path)
+        if old["size"] == fresh["size"] and old["preset"] == fresh["preset"]:
+            return {**old, "source": fresh["source"]}
+    except (ValueError, KeyError, TypeError):
+        pass
+    stem, ext = os.path.splitext(path)
+    os.replace(path, f"{stem}_{time.strftime('%H%M%S')}{ext}")
+    return fresh
+
+
 def lens_of(session):
     """The calibrated lens if the session has one, else the nominal pinhole at the received size."""
     if session.get("lens"):
@@ -58,11 +75,16 @@ def zone_of(session, lens):
 
 
 def camera_of(session, lens):
-    """The solved camera, or until the cones are clicked the camera the layout assumes: at the
-    taped height over the origin, aimed at the square's centre."""
-    if len(session["cones"]) >= ps.MIN_CONES:
+    """The solved camera or, until the cones give one, the camera the layout assumes: at the taped
+    height over the origin, aimed at the square's centre. Cones with no pose add the reason as
+    `error`: a mistyped cone must not stop the page."""
+    assumed = {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
+    if len(session["cones"]) < ps.MIN_CONES:
+        return assumed
+    try:
         return ps.solve([(c["x"], c["y"]) for c in session["cones"]], [(c["u"], c["v"]) for c in session["cones"]], lens)
-    return {"camera": ov.aimed(lens, zone_of(session, lens), session.get("taped_height_m") or 1.5), "solved": False}
+    except ValueError as e:
+        return {**assumed, "error": str(e)}
 
 
 def evaluate(session):
@@ -80,7 +102,7 @@ def evaluate(session):
             ok = ok and abs(pose["height_m"] - session["taped_height_m"]) <= band["pose_height_m"]
         out["steps"]["pose"] = ok
     else:
-        out["steps"]["pose"] = None
+        out["steps"]["pose"] = False if "error" in pose else None
     z = zone_of(session, lens)
     out["zone"] = {k: round(float(v), 4) for k, v in z.items()}
     out["layout"] = ov.layout(z)

@@ -23,8 +23,9 @@ def verdict(v):
 def annotate(frame, session, cam, z):
     """The overlay plus the cone and measurement clicks."""
     img = ov.draw(frame, cam, z)
-    if len(session["cones"]) < ps.MIN_CONES:
-        ov._label(img, (2, 60), f"pose not solved: square drawn for the phone aimed at d. Click {ps.MIN_CONES}+ markers", ov.YELLOW)
+    if cam.preview:
+        todo = f"Click {ps.MIN_CONES}+ markers" if len(session["cones"]) < ps.MIN_CONES else "Check the markers' x and y"
+        ov._label(img, (2, 60), f"pose not solved: square drawn for the phone aimed at d. {todo}", ov.YELLOW)
     for c in session["cones"]:
         cv2.circle(img, (int(c["u"]), int(c["v"])), 7, (0, 140, 255), 2, cv2.LINE_AA)
         ov._label(img, (c["u"], c["v"] + 18), c.get("name") or f"({c['x']:g}, {c['y']:g})", (0, 140, 255))
@@ -68,20 +69,20 @@ def markdown(session, r):
         if sensors:
             lines.append(f"Phone sensors (cross-check): pitch {sensors['pitch_deg']:.1f}°, roll {sensors['roll_deg']:.1f}°.")
     else:
-        lines.append("Not solved (fewer than four cones).")
+        lines.append(f"Not solved: {pose['error']}." if pose.get("error") else "Not solved (fewer than four cones).")
     lines += ["", "## Square", "", f"{ov.zone_text(z)}.", ""]
     if r.get("box"):
         lines += [f"Bounding box in the image: {ov.box_text(r['box'])}"
                   + ("." if pose["solved"] else " (camera aimed at the centre, pose not solved)."), ""]
     lines += ["| Corner | x m | y m | px/m (3D) | px/m (plan) |", "|---|---|---|---|---|"]
-    lines += [f"| {c['corner']} | {c['x']:+.2f} | {c['y']:.2f} | {c['px_per_m_3d']:.1f} | {c['px_per_m_plan']:.1f} |" for c in r["corners"]]
+    lines += [f"| {c['corner']} | {c['x']:+.2f} | {c['y']:.2f} | {ms.num(c['px_per_m_3d'], '.1f')} | {c['px_per_m_plan']:.1f} |" for c in r["corners"]]
     if r["overlay"]["rows"]:
         lines += ["", "| Cone | Off by px | % of width | |", "|---|---|---|---|"]
         lines += [f"| {o['corner']} | {o['off_px']:.1f} | {o['off_pct']:.2f} | {verdict(o['ok'])} |" for o in r["overlay"]["rows"]]
     lines += ["", "## Measurements", "", "| Label | Length m | Distance m | Predicted px | Measured px | Error | |",
               "|---|---|---|---|---|---|---|"]
-    lines += [f"| {m['label']} | {m['length_m']:g} | {m['distance_m']:.2f} | {m['predicted_px']:.1f} | {m['measured_px']:.1f} | "
-              f"{m['error_pct']:+.1f}% | {m['result']} |" for m in r["measurements"]]
+    lines += [f"| {m['label']} | {m['length_m']:g} | {ms.num(m['distance_m'], '.2f')} | {ms.num(m['predicted_px'], '.1f')} | {m['measured_px']:.1f} | "
+              f"{ms.num(m['error_pct'], '+.1f')}% | {m['result']} |" for m in r["measurements"]]
     sweep = session.get("sweep")
     if sweep:
         p90 = sweep.get("point_90")

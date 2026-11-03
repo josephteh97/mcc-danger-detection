@@ -16,6 +16,7 @@ import numpy as np
 
 from world.camera import PinholeCamera
 
+SHORT_M = 0.05                       # a short pole, for the density at one point
 _ITER = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 100, 1e-10)
 
 
@@ -45,6 +46,14 @@ class FieldLens:
             out[:, 1] = (out[:, 1] - self.cy) * self.fx / self.fy + self.cy
             return out
         return cv2.undistortPoints(pts, self.K, self.dist, R=None, P=self.K_ideal, criteria=_ITER).reshape(-1, 2)
+
+    def in_fit(self, uv):
+        """Whether an ideal pixel is inside the frame's corners: the only part of the image the
+        calibration saw. Beyond them the distortion polynomial means nothing."""
+        if not np.any(self.dist):
+            return True
+        corner = max(abs(self.size[0] - self.cx), self.cx) ** 2 + max(abs(self.size[1] - self.cy), self.cy) ** 2
+        return (uv[0] - self.cx) ** 2 + (uv[1] - self.cy) ** 2 <= corner
 
     def distort(self, pts):
         """Ideal pinhole pixels (N, 2) -> real image pixels."""
@@ -118,6 +127,8 @@ def angles(R):
 class FieldCamera(PinholeCamera):
     """A PinholeCamera in the lens's ideal image, at any position and rotation."""
 
+    preview = False                              # an assumed camera, not one solved from the cones
+
     def __init__(self, pos, R, lens):
         self.pos = np.asarray(pos, dtype=np.float64)
         self.R = np.asarray(R, dtype=np.float64)
@@ -156,3 +167,17 @@ class FieldCamera(PinholeCamera):
         """Pixel length in the real image of a vertical object standing at ground point xy."""
         uv, z = self.image_points([[xy[0], xy[1], 0.0], [xy[0], xy[1], length_m]])
         return float(np.linalg.norm(uv[1] - uv[0])) if np.all(z > 0) else float("nan")
+
+    def px_per_m(self, xy):
+        """Density at ground point xy: a 1 m pole's pixels or, if its top leaves the calibrated part of
+        the image, the density just above the ground. None if the point is behind the camera."""
+        x, y = xy
+        uv, z = self.project([[x, y, 0.0], [x, y, 1.0]])
+        if not np.all(z > 0) or not self.lens.in_fit(uv[1]):
+            uv, z = self.project([[x, y, 0.0], [x, y, SHORT_M]])
+            if not np.all(z > 0):
+                return None
+            if self.lens.in_fit(uv[0]):
+                return self.pole_px(xy, SHORT_M) / SHORT_M
+            return float(np.linalg.norm(uv[1] - uv[0])) / SHORT_M      # outside the fit: no distortion
+        return self.pole_px(xy)

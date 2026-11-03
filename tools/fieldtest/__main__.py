@@ -132,7 +132,8 @@ def build_parser():
 
 def server_config(args, app):
     import uvicorn
-    return uvicorn.Config(app, host=args.bind, port=args.port, log_level="warning")
+    # the page's picture is an endless response: don't let it hold up Ctrl+C
+    return uvicorn.Config(app, host=args.bind, port=args.port, log_level="warning", timeout_graceful_shutdown=1)
 
 
 def main(argv=None):
@@ -156,7 +157,13 @@ def main(argv=None):
         for w in live.src.warnings:
             print("WARNING:", w)
         print(f"{live.src.shown}: {live.src.size[0]} × {live.src.size[1]}; page on http://{a.bind}:{a.port}/")
-        uvicorn.Server(server_config(a, make_app(live))).run()
+        if live.session["cones"] or live.session["measurements"]:
+            print(f"continuing today's session: {len(live.session['cones'])} markers and "
+                  f"{len(live.session['measurements'])} measurements kept; if the phone moved, undo the markers")
+        try:
+            uvicorn.Server(server_config(a, make_app(live))).run()
+        finally:
+            live.close()
         return 0
 
     if a.cmd == "record":
@@ -229,7 +236,7 @@ def main(argv=None):
         out = a.out or os.path.join(report_dir(), "overlay.png")
         cv2.imwrite(out, rp.annotate(_frame_at(a.file, a.frame), session, cam, z))
         for c in result["corners"]:
-            print(f"{c['corner']:10s} ({c['x']:+.2f}, {c['y']:.2f}) m: {c['px_per_m_3d']:.1f} px/m 3D, {c['px_per_m_plan']:.1f} plan view")
+            print(f"{c['corner']:10s} ({c['x']:+.2f}, {c['y']:.2f}) m: {ms.num(c['px_per_m_3d'], '.1f')} px/m 3D, {c['px_per_m_plan']:.1f} plan view")
         print(f"saved {out}")
         return 0
 
@@ -237,8 +244,8 @@ def main(argv=None):
         out = a.out or os.path.join(os.path.dirname(os.path.abspath(a.session)), "measurements.csv")
         ms.write_csv(result["measurements"], out)
         for m in result["measurements"]:
-            print(f"{m['label'] or '-':12s} {m['distance_m']:6.2f} m  predicted {m['predicted_px']:7.1f} px  "
-                  f"measured {m['measured_px']:7.1f} px  {m['error_pct']:+6.1f}%  {m['result']}")
+            print(f"{m['label'] or '-':12s} {ms.num(m['distance_m'], '6.2f')} m  predicted {ms.num(m['predicted_px'], '7.1f')} px  "
+                  f"measured {m['measured_px']:7.1f} px  {ms.num(m['error_pct'], '+6.1f')}%  {m['result']}")
         print(f"saved {out}")
         return 0 if result["steps"]["density"] is not False else 1
 

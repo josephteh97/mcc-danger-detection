@@ -62,13 +62,13 @@ def describe_layout(sheet):
 
 
 def corner_table(cam, z):
-    """Per corner: ground position, 3D px/m (a 1 m pole's length through the calibrated camera) and
+    """Per corner: ground position, 3D px/m (`FieldCamera.px_per_m`, None behind the camera) and
     the plan-view px/m f/p ÷ forward distance, which only equals it for a level camera."""
     corners, _ = camera_square(cam, z)
     rows = []
     for name, (x, y) in zip(CORNERS, corners):
         fwd = float(np.dot([x - cam.pos[0], y - cam.pos[1]], cam.ground_axes()[0]))
-        rows.append({"corner": name, "x": float(x), "y": float(y), "px_per_m_3d": cam.pole_px((x, y)),
+        rows.append({"corner": name, "x": float(x), "y": float(y), "px_per_m_3d": cam.px_per_m((x, y)),
                      "px_per_m_plan": z["fp"] / fwd})
     return rows
 
@@ -76,7 +76,9 @@ def corner_table(cam, z):
 def aimed(lens, z, height_m):
     """The camera the layout assumes before the cones are clicked: at height_m over the origin,
     looking straight ahead and pitched down so the square's centre (0, d) is at the image centre."""
-    return FieldCamera.posed(lens, height_m, math.degrees(math.atan2(height_m, z["d"])))
+    cam = FieldCamera.posed(lens, height_m, math.degrees(math.atan2(height_m, z["d"])))
+    cam.preview = True
+    return cam
 
 
 def zone_box(cam, z, steps=24):
@@ -133,13 +135,18 @@ def footprint(cam, max_range_m=40.0, n=64):
     return cam.pos[:2] + s[:, None] * d[:, :2]
 
 
+def _drawable(uv):
+    """Pixels OpenCV can take: a wild pose projects points absurdly far off the picture."""
+    return np.all(np.abs(uv) < 1e6, axis=-1)
+
+
 def _poly(img, cam, ground_xy, colour, closed=True, thickness=2, steps=24):
     """Draw a ground polygon, each edge bent through the lens."""
     g = np.asarray(ground_xy, dtype=np.float64)
     a, b = (g, np.roll(g, -1, axis=0)) if closed else (g[:-1], g[1:])
     p = (a[:, None] + (b - a)[:, None] * np.linspace(0, 1, steps)[None, :, None]).reshape(-1, 2)
     uv, z = cam.image_points(np.column_stack([p, np.zeros(len(p))]))
-    edges = zip(uv.reshape(len(a), steps, 2), z.reshape(len(a), steps) > 0.05)
+    edges = zip(uv.reshape(len(a), steps, 2), (z > 0.05).reshape(len(a), steps) & _drawable(uv).reshape(len(a), steps))
     lines = [np.round(e[ok] * 4).astype(np.int32) for e, ok in edges if ok.sum() >= 2]
     if lines:
         cv2.polylines(img, lines, False, colour, thickness, cv2.LINE_AA, shift=2)
@@ -173,12 +180,12 @@ def draw(frame, cam, z, grid_m=1.0):
     tilted = abs(cam.pitch_deg) > 1.0
     for row, (x, y) in zip(corner_table(cam, z), corners):
         uv, depth = cam.image_points([[x, y, 0.0]])
-        if depth[0] > 0:
+        if depth[0] > 0 and _drawable(uv[0]) and row["px_per_m_3d"] is not None:
             text = f"{row['px_per_m_3d']:.0f} px/m" + (f" (plan {row['px_per_m_plan']:.0f})" if tilted else "")
             cv2.circle(img, tuple(int(c) for c in uv[0]), 5, GREEN, -1, cv2.LINE_AA)
             _label(img, uv[0], text, GREEN)
     uv, depth = cam.image_points([[centre[0], centre[1], 0.0]])
-    if depth[0] > 0:
+    if depth[0] > 0 and _drawable(uv[0]):
         cv2.drawMarker(img, tuple(int(c) for c in uv[0]), GREEN, cv2.MARKER_CROSS, 18, 2)
         _label(img, uv[0], f"d {z['d']:.2f} m", GREEN)
     _label(img, (2, 30), f"rho {z['rho']:g} px/m  N {z['n']}  f/p {z['fp']:.0f}  S {z['s']:.2f} m  "

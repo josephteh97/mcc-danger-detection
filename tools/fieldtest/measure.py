@@ -9,6 +9,7 @@ import os
 
 PASS_PCT, FLOOR_PX, SHORT_PX = 5.0, 1.0, 20.0
 NOT_RUN = "not run"                 # a row's result until the pose is solved
+NO_GROUND = "the lower click has no ground position under this camera: click the object's base"
 FIELDS = ("label", "length_m", "bottom_u", "bottom_v", "top_u", "top_v", "ground_x", "ground_y",
           "distance_m", "predicted_px", "measured_px", "error_px", "error_pct", "result")
 
@@ -21,15 +22,24 @@ def passes(predicted_px, measured_px, pct=PASS_PCT, floor_px=FLOOR_PX):
     return 100.0 * err / predicted_px <= pct + 1e-9
 
 
+def num(value, spec):
+    """A row's number for printing; a row with no prediction has None."""
+    return "-" if value is None else format(value, spec)
+
+
 def measure(cam, bottom, top, length_m, label, pct, floor_px):
-    """One measurement row (see FIELDS). bottom and top are real image pixels."""
+    """One measurement row (see FIELDS). bottom and top are real image pixels. A base this camera
+    can't place on the ground (above its horizon) stays a row, with no prediction, and fails: the
+    click may be right and the camera wrong, as when a cone is undone."""
     g = cam.ground_of_pixel(*bottom)
-    if g is None:
-        raise ValueError("the lower click is above the horizon: click the object's base")
-    pred = cam.pole_px(g, length_m)
+    pred = float("nan") if g is None else cam.pole_px(g, length_m)
     meas = float(math.dist(bottom, top))
-    return {"label": label, "length_m": float(length_m),
-            "bottom_u": float(bottom[0]), "bottom_v": float(bottom[1]), "top_u": float(top[0]), "top_v": float(top[1]),
+    clicks = {"label": label, "length_m": float(length_m),
+              "bottom_u": float(bottom[0]), "bottom_v": float(bottom[1]), "top_u": float(top[0]), "top_v": float(top[1])}
+    if not pred > 0:                    # above the horizon, behind the camera or no length
+        return {**clicks, "ground_x": None, "ground_y": None, "distance_m": None, "predicted_px": None,
+                "measured_px": round(meas, 3), "error_px": None, "error_pct": None, "result": "FAIL"}
+    return {**clicks,
             "ground_x": round(g[0], 4), "ground_y": round(g[1], 4),
             "distance_m": round(cam.ground_distance(g), 4),
             "predicted_px": round(pred, 3), "measured_px": round(meas, 3), "error_px": round(meas - pred, 3),

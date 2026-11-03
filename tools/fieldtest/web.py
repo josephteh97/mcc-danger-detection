@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -17,11 +18,23 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from tools.fieldtest import REPORTS, describe_pitch, load_phone, report_dir
 from tools.fieldtest import calib as cb
 from tools.fieldtest import lens as ln
+from tools.fieldtest import measure as ms
 from tools.fieldtest import report as rp
 from tools.fieldtest import session as ss
 from tools.fieldtest import source as src
 
 log = logging.getLogger("fieldtest")
+
+
+def _number(value, what):
+    """A typed or clicked number, or a 400 that says which one is wrong."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = math.nan
+    if not math.isfinite(v):
+        raise HTTPException(400, f"{what} must be a number")
+    return v
 
 
 class Live:
@@ -36,11 +49,18 @@ class Live:
             raise OSError(f"no frames from {self.src.shown}")
         self.frame, self.lock, self.stop = frame, threading.Lock(), False
         self.folder = report_dir()
-        self.session = ss.load_saved_lens(ss.new(self.src.size, self.src.shown, preset, self.phone, rho=rho), REPORTS)
+        fresh = ss.new(self.src.size, self.src.shown, preset, self.phone, rho=rho)
+        self.session = ss.resume(self.session_path(), fresh)
+        if rho is not None:
+            self.session["rho"] = rho
+        ss.load_saved_lens(self.session, REPORTS)
         self.overlay, self.writer, self.rec_path = True, None, None
         self.load_views()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
+
+    def session_path(self):
+        return os.path.join(self.folder, "session.json")
 
     def load_views(self):
         """The views kept across restarts ("Clear views" empties them) for this size and focal length."""
@@ -71,7 +91,18 @@ class Live:
                 time.sleep(max(0.0, period - (time.monotonic() - t0)))
 
     def save(self):
-        return ss.save(self.session, os.path.join(self.folder, "session.json"))
+        return ss.save(self.session, self.session_path())
+
+    def close(self):
+        """Stop reading and finish a recording, so the file plays."""
+        self.stop = True
+        self.thread.join(timeout=3.0)
+        with self.lock:
+            if self.writer is not None:
+                self.writer.release()
+                self.writer, self.rec_path = None, None
+        if not self.thread.is_alive():
+            self.src.close()
 
     def latest(self):
         """The latest frame, not to be written to: `_run` replaces it and never changes it."""
@@ -101,8 +132,9 @@ def make_app(live):
     app = FastAPI(title="Field test")
 
     def changed():
+        state = live.state()
         live.save()
-        return live.state()
+        return state
 
     @app.get("/", response_class=HTMLResponse)
     def page():
@@ -138,19 +170,25 @@ def make_app(live):
 
     @app.post("/api/cone")
     def cone(body: dict):
-        live.session["cones"].append({"name": body.get("name") or "", "x": float(body["x"]), "y": float(body["y"]),
-                                      "u": float(body["u"]), "v": float(body["v"])})
+        live.session["cones"].append({"name": body.get("name") or "", "x": _number(body.get("x"), "the marker's x"),
+                                      "y": _number(body.get("y"), "the marker's y"),
+                                      "u": _number(body.get("u"), "the click"), "v": _number(body.get("v"), "the click")})
         return changed()
 
     @app.post("/api/measure")
     def measure(body: dict):
-        live.session["measurements"].append({"label": body.get("label", ""), "length_m": float(body.get("length_m", 1.0)),
-                                             "bottom": [float(c) for c in body["bottom"]], "top": [float(c) for c in body["top"]]})
-        try:
-            return changed()
-        except ValueError as e:
-            live.session["measurements"].pop()
-            raise HTTPException(400, str(e))
+        length = _number(body.get("length_m", 1.0), "the length")
+        if length <= 0:
+            raise HTTPException(400, "the length must be above 0")
+        live.session["measurements"].append({"label": body.get("label", ""), "length_m": length,
+                                             "bottom": [_number(c, "the click") for c in body["bottom"]],
+                                             "top": [_number(c, "the click") for c in body["top"]]})
+        state = live.state()
+        if state["pose"]["solved"] and state["measurements"][-1]["predicted_px"] is None:
+            live.session["measurements"].pop()   # the pose is known, so the click is wrong: refuse it
+            raise HTTPException(400, ms.NO_GROUND)
+        live.save()
+        return state
 
     @app.post("/api/undo")
     def undo(body: dict):
@@ -206,7 +244,7 @@ def make_app(live):
                 live.writer = live.src.writer(live.rec_path)
             elif not body.get("on") and live.writer is not None:
                 live.writer.release()
-                live.writer = None
+                live.writer, live.rec_path = None, None
         return live.state()
 
     @app.post("/api/report")
@@ -258,7 +296,7 @@ let M='cone', first=null, S=null;
 const $=id=>document.getElementById(id);
 function mode(m){M=m;first=null;$('hint').textContent='mode: '+m;}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
- const j=await r.json(); if(!r.ok){alert(j.detail||r.statusText);return null;} if(j.session)show(j); return j;}
+ const j=await r.json().catch(()=>({})); if(!r.ok){alert(j.detail||r.statusText);return null;} if(j.session)show(j); return j;}
 function settings(){post('/api/settings',{rho:$('rho').value,focal_equiv_mm:$('focal').value,taped_height_m:$('height').value});}
 function toggleOverlay(){const on=$('ov').textContent!=='Overlay on'; $('ov').textContent=on?'Overlay on':'Overlay off'; post('/api/settings',{overlay:on});}
 function record(){const on=!(S&&S.recording); post('/api/record',{on});}
@@ -267,6 +305,7 @@ $('pic').addEventListener('click',e=>{const im=e.target, r=im.getBoundingClientR
  if(M==='cone'){post('/api/cone',{u,v,x:$('cx').value,y:$('cy').value,name:$('cname').value});}
  else if(!first){first=[u,v];$('hint').textContent='now click the top';}
  else{post('/api/measure',{bottom:first,top:[u,v],length_m:$('len').value,label:$('lab').value});first=null;$('hint').textContent='mode: measure';}});
+const num=(v,d)=>v==null?'-':v.toFixed(d);
 function show(s){S=s; const ss=s.session;
  if(!$('rho').value){$('rho').value=ss.rho;$('focal').value=ss.focal_equiv_mm;$('height').value=ss.taped_height_m??'';}
  $('warn').textContent=(s.warnings||[]).join(' · ')+(s.overlay_allowed?'':' Overlay off until the lens is calibrated at this size.');
@@ -276,10 +315,10 @@ function show(s){S=s; const ss=s.session;
  $('out').textContent=`${s.source}  ${s.size[0]} x ${s.size[1]}  checkerboard views ${s.views}\\n${st}\\n`+
   `f/p ${n.fx.toFixed(1)} (nominal ${n.nominal_fp.toFixed(1)}, ${n.diff_pct.toFixed(2)}%)\\n`+
   `z_max ${z.z_max.toFixed(2)}  W_max ${z.w_max.toFixed(2)}  S ${z.s.toFixed(2)}  d ${z.d.toFixed(2)}  near ${z.near.toFixed(2)} m\\n`+
-  (p.solved?`pose: height ${p.height_m.toFixed(3)} m pitch ${p.pitch_deg.toFixed(2)} roll ${p.roll_deg.toFixed(2)} heading ${p.heading_deg.toFixed(2)} reproj ${p.max_reproj_px.toFixed(2)} px\\n`:'pose: click 4-8 cones\\n')+
+  (p.solved?`pose: height ${p.height_m.toFixed(3)} m pitch ${p.pitch_deg.toFixed(2)} roll ${p.roll_deg.toFixed(2)} heading ${p.heading_deg.toFixed(2)} reproj ${p.max_reproj_px.toFixed(2)} px\\n`:(p.error?`pose: NOT SOLVED, ${p.error}\\n`:'pose: click 4-8 cones\\n'))+
   'cones: '+ss.cones.map(c=>`${c.name||''}(${c.x},${c.y})`).join(' ')+'\\n'+
   'layout: '+Object.entries(s.layout.corners).map(([k,v])=>`${k} (${v[0]}, ${v[1]})`).join('; ')+'\\n'+
-  s.measurements.map(m=>`${m.label} ${m.distance_m.toFixed(2)} m: ${m.predicted_px.toFixed(1)} vs ${m.measured_px.toFixed(1)} px ${m.error_pct.toFixed(1)}% ${m.result}`).join('\\n');}
+  s.measurements.map(m=>`${m.label} ${num(m.distance_m,2)} m: ${num(m.predicted_px,1)} vs ${m.measured_px.toFixed(1)} px ${num(m.error_pct,1)}% ${m.result}`).join('\\n');}
 fetch('/api/state').then(r=>r.json()).then(show); mode('cone');
 setInterval(()=>fetch('/api/state').then(r=>r.json()).then(show),3000);
 </script></body></html>"""

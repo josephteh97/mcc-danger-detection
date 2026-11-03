@@ -2,6 +2,7 @@
 clicked through its API, replayed from the saved session; the sweep, report and layout."""
 import json
 import os
+import time
 
 import cv2
 import numpy as np
@@ -45,7 +46,7 @@ def recording(tmp_path):
 def live(reports, recording):
     live = web.Live(recording[0], loop=True)
     yield live
-    live.stop = True
+    live.close()
 
 
 def test_live_clicks_replay_to_the_same_log(reports, recording, live):
@@ -74,10 +75,134 @@ def test_live_clicks_replay_to_the_same_log(reports, recording, live):
     assert open(out).read() == open(live_csv).read()
 
 
-def test_bad_click_is_refused_not_logged(live):
+def click_cones(client, cam, cones=CONES):
+    for name, (x, y) in cones.items():
+        (u, v), = cam.image_points([[x, y, 0.0]])[0]
+        assert client.post("/api/cone", json={"u": u, "v": v, "x": x, "y": y, "name": name}).status_code == 200
+
+
+def test_bad_click_is_refused_not_logged(reports, recording, live):
+    """With a pose, a base above the horizon is a wrong click: refused, in memory and on disk."""
     client = TestClient(web.make_app(live))
+    click_cones(client, recording[1])
     r = client.post("/api/measure", json={"bottom": [700, 10], "top": [700, 0], "length_m": 1})
-    assert r.status_code == 400 and not live.session["measurements"]
+    assert r.status_code == 400 and "base" in r.json()["detail"] and not live.session["measurements"]
+    assert not ss.load(str(reports / "session.json"))["measurements"]
+
+
+@pytest.mark.parametrize("body", [{"length_m": 0}, {"length_m": -1}, {"length_m": "nan"}, {"length_m": ""}, {"top": ["x", 800]}])
+def test_bad_numbers_are_refused_not_logged(live, body):
+    client = TestClient(web.make_app(live))
+    r = client.post("/api/measure", json={"bottom": [700, 900], "top": [700, 800], "length_m": 1, **body})
+    assert r.status_code == 400 and r.json()["detail"] and not live.session["measurements"]
+    assert client.get("/api/state").status_code == 200
+
+
+def test_blank_marker_position_is_refused(live):
+    client = TestClient(web.make_app(live))
+    r = client.post("/api/cone", json={"u": 1, "v": 1, "x": "", "y": ""})
+    assert r.status_code == 400 and "x" in r.json()["detail"] and not live.session["cones"]
+
+
+@pytest.mark.parametrize("marks", [
+    [(1.0, 5.0)] * 4,                                                # x, y not retyped
+    [(0.0, 3.0), (0.0, 4.0), (0.0, 5.0), (0.0, 6.0)],                # all on one line
+    [(2.87, 9.57), (-2.87, 9.57), (-2.87, 3.82), (2.87, 3.82)],      # x signs swapped
+])
+def test_bad_markers_read_as_fail_and_the_page_keeps_going(reports, recording, live, marks):
+    client = TestClient(web.make_app(live))
+    cam = recording[1]
+    uv, _ = cam.image_points([[x, y, 0.0] for x, y in CONES.values()])
+    for (x, y), (u, v) in zip(marks, uv):
+        assert client.post("/api/cone", json={"u": float(u), "v": float(v), "x": x, "y": y}).status_code == 200
+    state = client.get("/api/state").json()
+    if not state["pose"]["solved"]:
+        assert state["pose"]["error"] and state["steps"]["pose"] is False and state["steps"]["overlay"] is None
+    else:                                                            # a pose came out, but not one that fits
+        assert state["steps"]["pose"] is False
+    assert live.jpeg()
+    assert "Not solved" in open(client.post("/api/report").json()["report"]).read() or state["pose"]["solved"]
+    assert client.post("/api/undo", json={"what": "cone"}).json()["steps"]["pose"] is None
+
+
+def test_a_wild_pose_still_draws():
+    """Corners projected absurdly far off the picture are left out, not passed to OpenCV."""
+    lens = ln.FieldLens(syn.STREAM, 960.0, 960.0, 720, 540, (0.17, -0.79, 0.0, 0.01, 1.28), rms=0.2, views=20, source="checkerboard")
+    z = ov.zone(lens.fx, *syn.STREAM, 100)
+    cam = ln.FieldCamera.posed(lens, 40.0, 89.0)         # looking straight down from 40 m: corners far out in the polynomial
+    assert ov.draw(np.zeros((1080, 1440, 3), np.uint8), cam, z).shape == (1080, 1440, 3)
+    assert not ov._drawable(np.array([1e7, 0.0])) and not ov._drawable(np.array([np.nan, 0.0])) and ov._drawable(np.array([-50.0, 2000.0]))
+
+
+def test_base_above_the_horizon_stays_a_row_and_never_stops_the_page(reports, live):
+    """A base the assumed or a later camera can't place: kept, with no numbers, as cone undo can cause."""
+    client = TestClient(web.make_app(live))
+    r = client.post("/api/measure", json={"bottom": [700, 10], "top": [700, 0], "length_m": 1, "label": "high"})
+    assert r.status_code == 200
+    row = r.json()["measurements"][0]
+    assert row["result"] == "not run" and row["predicted_px"] is None and row["measured_px"] == 10
+    assert live.jpeg() and client.post("/api/report").status_code == 200
+    assert main(["measure", "--session", str(reports / "session.json"), "--out", str(reports / "m.csv")]) == 0
+
+
+def test_restarting_the_page_keeps_the_clicks(reports, recording):
+    """Same setup: clicks and settings kept. Another preset: a new session, the old file moved aside."""
+    def page(*args, **kw):
+        live = web.Live(recording[0], *args, loop=True, **kw)
+        return live, TestClient(web.make_app(live))
+    live, client = page(rho=90)
+    click_cones(client, recording[1])
+    live.close()
+    live, client = page()
+    assert len(live.session["cones"]) == 4 and live.session["rho"] == 90
+    assert client.get("/api/state").json()["pose"]["solved"]
+    live.close()
+    live, _ = page(rho=95)
+    assert len(live.session["cones"]) == 4 and live.session["rho"] == 95
+    live.save()
+    live.close()
+    live, client = page("office")
+    assert not live.session["cones"] and live.session["preset"] == "office"
+    client.post("/api/settings", json={"overlay": True})
+    live.close()
+    kept = [f for f in os.listdir(reports) if f.startswith("session_")]
+    assert len(kept) == 1 and len(ss.load(str(reports / kept[0]))["cones"]) == 4
+
+
+def test_a_damaged_session_file_is_moved_aside(reports, recording):
+    (reports / "session.json").write_text("{not json")
+    live = web.Live(recording[0], loop=True)
+    live.close()
+    assert not live.session["cones"] and any(f.startswith("session_") for f in os.listdir(reports))
+
+
+def test_recording_stops_and_starts_again_and_closes_on_exit(reports, live):
+    client = TestClient(web.make_app(live))
+    first = client.post("/api/record", json={"on": True}).json()["recording"]
+    assert first and client.post("/api/record", json={"on": False}).json()["recording"] is None
+    second = client.post("/api/record", json={"on": True}).json()["recording"]
+    assert second
+    time.sleep(0.5)                                      # some frames
+    live.close()                                         # as Ctrl+C does, still recording
+    cap = cv2.VideoCapture(second)
+    assert cap.isOpened() and cap.read()[0]
+    cap.release()
+
+
+def test_corner_density_ignores_the_polynomial_beyond_the_frame():
+    """The corridor's near corners: a 1 m pole's top is far outside the frame, where this real
+    k1/k2/k3 fit explodes. The density comes from the part of the pole the lens fit covers."""
+    lens = ln.FieldLens((1280, 720), 901.3, 900.7, 664.2, 358.8, (0.1728, -0.7876, 0.0014, 0.01, 1.2798),
+                        rms=0.25, views=33, source="checkerboard")
+    z = ov.zone(lens.fx, 1280, 720, 380)
+    cam = ov.aimed(lens, z, 0.45)
+    rows = {r["corner"]: r["px_per_m_3d"] for r in ov.corner_table(cam, z)}
+    x, y = z["s"] / 2, z["near"]
+    local = np.linalg.norm(np.subtract(*cam.image_points([[x, y, 0.0], [x, y, 0.02]])[0])) / 0.02
+    assert cam.pole_px((x, y)) > 3000                    # the raw 1 m pole, through the polynomial
+    assert abs(rows["near right"] - local) / local < 0.02
+    plain = ov.aimed(ln.FieldLens.pinhole((1280, 720), lens.fx), z, 0.45)
+    assert all(r["px_per_m_3d"] == plain.pole_px((r["x"], r["y"])) for r in ov.corner_table(plain, z))   # still the 1 m pole
 
 
 def test_sixteen_nine_recording_warned(tmp_path):

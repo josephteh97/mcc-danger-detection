@@ -226,7 +226,7 @@ python3 -m tools.fieldtest sweep --file REC --model person.onnx --steps steps.cs
 python3 -m tools.fieldtest distortion --images 'ultrawide/*.jpg' --pole-centre u1,v1,u2,v2 --pole-edge u1,v1,u2,v2
 ```
 
-**On the page:** capture 12–15 checkerboard views (9 × 6 inner corners, 36 mm squares) and press Calibrate. Tape out the layout sheet's cones, then in Cone mode click each cone's base after typing its x and y (and its corner name). The pose solves from four cones. In Measure mode, click a 1 m pole's base and then its top. Write report saves `report.md`, `measurements.csv`, `overlay.png` and `layout.txt` to `reports/fieldtest/<date>/` (git-ignored), and every click is saved in `session.json`.
+**On the page:** capture 12–15 checkerboard views (9 × 6 inner corners, 36 mm squares) and press Calibrate. Tape out the layout sheet's cones, then in Cone mode click each cone's base after typing its x and y (and its corner name). The pose solves from four cones. In Measure mode, click a 1 m pole's base and then its top. Write report saves `report.md`, `measurements.csv`, `overlay.png` and `layout.txt` to `reports/fieldtest/<date>/` (git-ignored), and every click is saved in `session.json`; restarting the page on the same day with the same preset continues that session.
 
 **Default level run:** phone level at 1.5 m, 23 mm, 1440 × 1080, ρ = 100 px/m. That gives z_max 9.57 m, W_max 14.4 m, S 5.75 m, d 6.69 m and near edge 3.82 m; cones at (±2.87, 9.57) and (±2.87, 3.82) m. A 1 m pole at a far corner should be about 100 px. For the tilted run, tilt the phone about 10° down: the page then shows the plan-view px/m beside the 3D one, to show how far they drift.
 

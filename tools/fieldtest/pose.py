@@ -20,14 +20,18 @@ def solve(cones_xy, pixels, lens):
         raise ValueError(f"pose needs {MIN_CONES} to 8 cones with a click each ({len(g)} cones, {len(px)} clicks)")
     obj = np.column_stack([g, np.zeros(len(g))])
     ideal = lens.undistort(px)
-    ok, rvec, tvec = cv2.solvePnP(obj, ideal, lens.K_ideal, None, flags=cv2.SOLVEPNP_IPPE)
-    if not ok:
-        raise ValueError("solvePnP found no pose for these cones")
-    rvec, tvec = cv2.solvePnPRefineLM(obj, ideal, lens.K_ideal, None, rvec, tvec)
+    try:
+        ok, rvec, tvec = cv2.solvePnP(obj, ideal, lens.K_ideal, None, flags=cv2.SOLVEPNP_IPPE)
+        if ok:
+            rvec, tvec = cv2.solvePnPRefineLM(obj, ideal, lens.K_ideal, None, rvec, tvec)
+    except cv2.error:
+        ok = False
+    if not ok or not (np.all(np.isfinite(rvec)) and np.all(np.isfinite(tvec))):   # repeated or collinear cones
+        raise ValueError("no pose from these cones: check each one's x and y (all different, not all on one line)")
     R = cv2.Rodrigues(rvec)[0]
     pos = (-R.T @ tvec).ravel()
     if pos[2] < 0:                               # the mirror solution under the ground
-        raise ValueError("the pose came out below the ground: check the cone order and clicks")
+        raise ValueError("the pose came out below the ground: check each cone's x and y and its click")
     cam = FieldCamera(pos, R, lens)
     reproj = np.linalg.norm(cam.image_points(obj)[0] - px, axis=1)
     pitch, heading, roll = angles(R)

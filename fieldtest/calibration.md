@@ -167,6 +167,10 @@ them from the page's `layout:` line, or print them with
    on the page and press **Apply**.
 4. Don't touch the phone from now on.
 
+**Restarting the page** on the same day (same preset) continues the session: your markers and
+measurements come back, and the terminal says how many. If the phone moved in between, undo the
+markers and click them again.
+
 ## 4. Click the markers
 
 1. Press **Cone**.
@@ -176,6 +180,8 @@ them from the page's `layout:` line, or print them with
       marker has no name: leave it blank.
    3. Click the **middle of the marker** on the picture.
 3. A wrong click: press **Undo cone** and click it again.
+   If the markers give no pose (x and y not retyped, or typed wrong), the panel says `pose: NOT
+   SOLVED` with the reason and the picture keeps running: undo the markers from the wrong one on.
 4. After four markers the panel shows the pose: `height … m pitch … roll … heading … reproj … px`.
    Click the centre marker too: five markers give a better pose.
 
@@ -210,6 +216,10 @@ are clicked: until the pose is solved, measurements show `not run`, not PASS or 
 4. The panel shows predicted against measured pixels. PASS is within 5% (or 1 px for anything
    under 20 px).
 
+A base the tool can't place on the ground is refused once the pose is solved. Before that it's kept
+as `not run`. If a row reads FAIL with `-` for its numbers (the pose changed after it was clicked),
+press **Undo measurement** and click it again.
+
 Repeat on the near and far markers. A 1 m pole near the phone is taller than the picture: use the
 0.5 m stick.
 
@@ -220,7 +230,8 @@ Press **Write report**. It saves to `reports/fieldtest/<date>/`:
 - `report.md`: every step and its PASS/FAIL, the lens, the pose, S, d, z_near, z_far, the
   square's bounding box in the picture and the measurements.
 - `overlay.png`: the picture with the square drawn on it.
-- `measurements.csv`, `layout.txt`, and `session.json` with every click.
+- `measurements.csv`, `layout.txt`, and `session.json` with every click. (Starting the page with
+  another preset moves the old session aside as `session_<time>.json`.)
 
 Print the numbers from the saved session at any time:
 
