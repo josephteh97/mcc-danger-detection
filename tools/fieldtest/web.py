@@ -26,6 +26,13 @@ from tools.fieldtest import source as src
 log = logging.getLogger("fieldtest")
 
 
+def _positive(value, what):
+    v = _number(value, what)
+    if v <= 0:
+        raise HTTPException(400, f"{what} must be above 0")
+    return v
+
+
 def _number(value, what):
     """A typed or clicked number, or a 400 that says which one is wrong."""
     try:
@@ -40,7 +47,7 @@ def _number(value, what):
 class Live:
     """The open source, the latest frame and the session being built."""
 
-    def __init__(self, url, preset="default", rho=None, loop=False):
+    def __init__(self, url, preset="default", rho=None, loop=False, focal=None):
         self.phone = load_phone()
         self.loop = loop
         self.src = src.Source(url)
@@ -54,6 +61,8 @@ class Live:
         if rho is not None:
             self.session["rho"] = rho
         ss.load_saved_lens(self.session, REPORTS)
+        if focal is not None:
+            ss.set_focal(self.session, focal, REPORTS)
         self.overlay, self.writer, self.rec_path = True, None, None
         self.load_views()
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -120,12 +129,12 @@ class Live:
         return jpg.tobytes() if ok else None
 
     def state(self):
-        result, cam, _ = ss.evaluate(self.session)
+        result, _, _ = ss.evaluate(self.session)
         return {"source": self.src.shown, "size": self.src.size, "warnings": self.src.warnings,
                 "pitch": describe_pitch(self.phone, self.src.size[0], self.session["focal_equiv_mm"]),
-                "overlay_allowed": src.overlay_allowed(self.src.size, cam.lens), "views": len(self.views),
+                "views": len(self.views),
                 "recording": self.rec_path, "folder": self.folder, "session": self.session,
-                **{k: result[k] for k in ("steps", "nominal", "pose", "zone", "layout", "corners", "overlay", "measurements")}}
+                **{k: result[k] for k in ("overlay_allowed", "steps", "nominal", "pose", "zone", "layout", "corners", "overlay", "measurements")}}
 
 
 def make_app(live):
@@ -156,13 +165,11 @@ def make_app(live):
 
     @app.post("/api/settings")
     def settings(body: dict):
-        focal = live.session["focal_equiv_mm"]
-        for k in ("rho", "focal_equiv_mm", "taped_height_m"):
-            if body.get(k) not in (None, ""):
-                live.session[k] = float(body[k])
-        if live.session["focal_equiv_mm"] != focal:      # the lens and views of that focal length, if any
-            live.session["lens"] = None
-            ss.load_saved_lens(live.session, REPORTS)
+        names = {"rho": "ρ", "focal_equiv_mm": "the focal length", "taped_height_m": "the taped height"}
+        values = {k: _positive(body[k], what) for k, what in names.items() if body.get(k) not in (None, "")}   # all or nothing
+        focal = values.pop("focal_equiv_mm", None)
+        live.session.update(values)
+        if focal is not None and ss.set_focal(live.session, focal, REPORTS):
             live.load_views()
         if "overlay" in body:
             live.overlay = bool(body["overlay"])
@@ -197,11 +204,19 @@ def make_app(live):
             items.pop()
         return changed()
 
+    def same_size():
+        """Views and a lens belong to one frame size: the session's."""
+        if list(live.src.size) != list(live.session["size"]):
+            raise HTTPException(400, f"the stream changed size to {live.src.size[0]} × {live.src.size[1]}: restart the page")
+
     @app.post("/api/calib/capture")
     def capture():
+        same_size()
         corners = cb.find_corners(live.latest(), live.phone["checkerboard"]["inner_corners"])
         if corners is None:
             raise HTTPException(400, "no checkerboard in this frame")
+        if cb.is_repeat(corners, live.views):
+            raise HTTPException(400, "same picture as an earlier view: move the board, and check the stream isn't frozen")
         live.views.append(corners)
         live.save_views()
         return live.state()
@@ -214,9 +229,11 @@ def make_app(live):
 
     @app.post("/api/calib/solve")
     def calibrate():
+        same_size()
         pattern, square_m, min_views = cb.board_settings(live.phone)
         try:
             lens = cb.calibrate(live.views, pattern, square_m, live.src.size, min_views)
+            cb.check_fit(lens, live.session["focal_equiv_mm"], live.session["pass"]["lens_rms_px"])
         except ValueError as e:
             raise HTTPException(400, str(e))
         ln.save(lens, REPORTS, live.session["focal_equiv_mm"])
@@ -240,8 +257,12 @@ def make_app(live):
     def record(body: dict):
         with live.lock:
             if body.get("on") and live.writer is None:
-                live.rec_path = os.path.join(live.folder, time.strftime(src.REC_NAME))
-                live.writer = live.src.writer(live.rec_path)
+                path = os.path.join(live.folder, time.strftime(src.REC_NAME))
+                try:
+                    live.writer = live.src.writer(path)
+                except OSError as e:
+                    raise HTTPException(400, str(e))
+                live.rec_path = path
             elif not body.get("on") and live.writer is not None:
                 live.writer.release()
                 live.writer, live.rec_path = None, None
@@ -308,7 +329,8 @@ $('pic').addEventListener('click',e=>{const im=e.target, r=im.getBoundingClientR
 const num=(v,d)=>v==null?'-':v.toFixed(d);
 function show(s){S=s; const ss=s.session;
  if(!$('rho').value){$('rho').value=ss.rho;$('focal').value=ss.focal_equiv_mm;$('height').value=ss.taped_height_m??'';}
- $('warn').textContent=(s.warnings||[]).join(' · ')+(s.overlay_allowed?'':' Overlay off until the lens is calibrated at this size.');
+ const kept=Object.keys(ss.parked||{}).map(f=>f+' mm').join(', ');
+ $('warn').textContent=(s.warnings||[]).join(' · ')+(s.overlay_allowed?'':' Overlay off until the lens is calibrated at this size.')+(kept?` Clicks at ${kept} are kept for when you set it back.`:'');
  $('pitch').textContent=s.pitch; $('rec').textContent=s.recording?'Stop recording':'Record';
  const st=Object.entries(s.steps).map(([k,v])=>`${k}: ${v===null?'not run':v?'PASS':'FAIL'}`).join('  ');
  const z=s.zone, p=s.pose, n=s.nominal;

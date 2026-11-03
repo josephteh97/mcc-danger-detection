@@ -299,13 +299,13 @@ def test_local_file_keeps_the_login_out_of_the_repo(tmp_path):
 
 def test_saved_calibration_drives_layout_and_views_survive(reports, capsys):
     """layout/zone use the lens calibrated at that size; captured views are kept on disk."""
-    ln.save(ln.FieldLens((1280, 720), 901.3, 900.7, 640, 360, rms=0.25, views=20, source="checkerboard"), str(reports))
+    ln.save(ln.FieldLens((1280, 720), 901.3, 900.7, 640, 360, rms=0.25, views=20, source="checkerboard"), str(reports), 23)
     assert main(["zone", "--preset", "corridor"]) == 0
     out = capsys.readouterr().out
     assert "calibrated lens: fx 901.3" in out and "z_far 2.37 m" in out
     views = [np.full((54, 1, 2), i, np.float32) for i in range(3)]
-    cb.save_views(views, str(reports), (1280, 720))
-    assert len(cb.load_views(str(reports), (1280, 720))) == 3
+    cb.save_views(views, str(reports), (1280, 720), 23)
+    assert len(cb.load_views(str(reports), (1280, 720), 23)) == 3
 
 
 def test_main_camera_fit_keeps_k3_and_tangential_at_zero():
@@ -354,14 +354,200 @@ def test_saved_lens_and_views_belong_to_their_focal_length(reports, capsys):
     assert len(cb.load_views(str(reports), (1280, 720), 23)) == 1 and cb.load_views(str(reports), (1280, 720), 28) == []
 
 
-def test_files_from_before_focal_was_recorded_still_load(reports):
-    """Calibration and views files saved earlier (no focal length) match any focal length."""
+def test_files_from_before_focal_was_recorded_are_the_main_cameras(reports):
+    """Calibration and views files saved earlier (no focal length) were made at 23 mm, and only match that."""
     (reports / "calib_1280x720.json").write_text(json.dumps(
         {"size": [1280, 720], "fx": 901.3, "fy": 900.7, "cx": 664.2, "cy": 358.8, "dist": [0.1, 0, 0, 0, 0],
          "rms": 0.25, "views": 33, "source": "checkerboard"}))
     (reports / "views_1280x720.json").write_text(json.dumps([[[1.0, 2.0]] * 54]))
     assert ln.load(str(reports), (1280, 720), 23).views == 33
     assert len(cb.load_views(str(reports), (1280, 720), 23)) == 1
+    assert ln.load(str(reports), (1280, 720), 28) is None and cb.load_views(str(reports), (1280, 720), 28) == []
+    assert ln.saved_focals(str(reports), (1280, 720)) == [23.0]
+    cb.save_views([], str(reports), (1280, 720), 23)        # cleared: the old file no longer counts
+    assert cb.load_views(str(reports), (1280, 720), 23) == []
+
+
+def lens_of_focal(fx, focal, folder, size=syn.STREAM):
+    ln.save(ln.FieldLens(size, fx, fx, size[0] / 2, size[1] / 2, rms=0.25, views=20, source="checkerboard"), str(folder), focal)
+
+
+def test_each_focal_length_keeps_its_lens_views_and_clicks(reports, recording):
+    """Going to 28 mm and back loses nothing, and old clicks are never judged by another lens."""
+    lens_of_focal(960.0, 23, reports)
+    lens_of_focal(1170.0, 28, reports)
+    views = [np.full((54, 1, 2), float(i), np.float32) for i in range(3)]
+    cb.save_views(views, str(reports), syn.STREAM, 23)
+    live = web.Live(recording[0], loop=True)
+    try:
+        client = TestClient(web.make_app(live))
+        cam = ln.FieldCamera.posed(ss.lens_of(live.session), 1.5)
+        click_cones(client, cam)
+        before = client.get("/api/state").json()
+        assert before["pose"]["solved"] and before["views"] == 3
+        state = client.post("/api/settings", json={"focal_equiv_mm": 28}).json()
+        assert state["nominal"]["fx"] == 1170.0 and state["views"] == 0 and not state["session"]["cones"]
+        assert state["steps"]["pose"] is None and state["steps"]["overlay"] is None
+        client.post("/api/calib/clear")                     # at 28 mm: the 23 mm views stay
+        state = client.post("/api/settings", json={"focal_equiv_mm": 23}).json()
+        assert state["nominal"]["fx"] == 960.0 and state["views"] == 3 and len(state["session"]["cones"]) == 4
+        assert state["pose"]["height_m"] == before["pose"]["height_m"] and not state["session"]["parked"].get("23")
+    finally:
+        live.close()
+
+
+def test_a_failed_settings_post_changes_nothing(reports, recording):
+    lens_of_focal(960.0, 23, reports)
+    live = web.Live(recording[0], loop=True)
+    try:
+        client = TestClient(web.make_app(live))
+        for body in ({"focal_equiv_mm": "28", "taped_height_m": "1,5"}, {"focal_equiv_mm": 0}, {"rho": -1}, {"rho": "nan"}):
+            r = client.post("/api/settings", json=body)
+            assert r.status_code == 400 and r.json()["detail"]
+            assert live.session["focal_equiv_mm"] == 23 and live.session["rho"] == 100
+        state = client.post("/api/settings", json={"focal_equiv_mm": "28", "taped_height_m": "1.5"}).json()
+        assert state["steps"]["lens"] is None and state["session"]["taped_height_m"] == 1.5
+    finally:
+        live.close()
+
+
+def test_serve_can_start_at_another_focal(reports, recording):
+    lens_of_focal(1170.0, 28, reports)
+    live = web.Live(recording[0], loop=True, focal=28)
+    try:
+        assert live.session["lens"]["fx"] == 1170.0 and ss.lens_of(live.session).focal_equiv_mm == 28
+        assert ln.saved_focals(str(reports), syn.STREAM) == [28.0]
+    finally:
+        live.close()
+
+
+def test_a_bad_fit_does_not_replace_the_saved_lens(reports, recording):
+    """Too rough, or fx of another focal length: refused on the page and the command line."""
+    lens_of_focal(960.0, 23, reports)
+    fit = ln.FieldLens(syn.STREAM, syn.FP, syn.FP, 720, 540, rms=0.2, views=15, source="checkerboard")
+    cb.check_fit(fit, 23, 0.5)
+    fit.rms = 0.9
+    with pytest.raises(ValueError, match="not saved"):
+        cb.check_fit(fit, 23, 0.5)
+    fit.rms = 0.2
+    with pytest.raises(ValueError, match="from the nominal"):
+        cb.check_fit(fit, 35, 0.5)
+    lens = ln.FieldLens.pinhole(syn.STREAM, ft.nominal_fp(syn.STREAM[0], 28))         # filmed at 28 mm
+    folder = reports / "board"
+    folder.mkdir()
+    for i, (r, t) in enumerate(syn.board_poses(14, np.random.default_rng(3))):
+        cv2.imwrite(str(folder / f"{i:02d}.png"), syn.render_board(lens, r, t))
+    pattern = str(folder / "*.png")
+    assert main(["calibrate", "--images", pattern]) == 1                               # taken for 23 mm: refused
+    assert ln.load(str(reports), syn.STREAM, 23).fx == 960.0
+    assert main(["calibrate", "--images", pattern, "--focal", "28"]) == 0
+    assert ln.load(str(reports), syn.STREAM, 23).fx == 960.0
+    assert abs(ln.load(str(reports), syn.STREAM, 28).fx - lens.fx) / lens.fx < 0.01
+
+
+def test_repeated_pictures_are_not_new_views(live, monkeypatch):
+    """A frozen stream, or the board not moved between captures."""
+    view = np.full((54, 1, 2), 100.0, np.float32) + np.arange(54, dtype=np.float32).reshape(-1, 1, 1)
+    assert cb.is_repeat(view + 0.2, [view]) and not cb.is_repeat(view + 5, [view]) and not cb.is_repeat(view, [])
+    client = TestClient(web.make_app(live))
+    monkeypatch.setattr(cb, "find_corners", lambda *a: view)
+    assert client.post("/api/calib/capture").json()["views"] == 1
+    r = client.post("/api/calib/capture")
+    assert r.status_code == 400 and "earlier view" in r.json()["detail"] and len(live.views) == 1
+
+
+def test_stream_size_change_stops_calibration(live):
+    client = TestClient(web.make_app(live))
+    live.session["size"] = [640, 480]                   # the session's size; the stream has moved on
+    for url in ("/api/calib/capture", "/api/calib/solve"):
+        r = client.post(url)
+        assert r.status_code == 400 and "restart" in r.json()["detail"]
+
+
+def test_no_overlay_verdict_on_an_uncalibrated_cropped_frame(reports):
+    """16:9 with the nominal lens: no overlay PASS or FAIL, no drawing in the picture or by command."""
+    session = ss.new((1280, 720), preset="corridor")
+    cam = ov.aimed(ss.lens_of(session), ss.zone_of(session, ss.lens_of(session)), 0.45)
+    z = ss.zone_of(session, cam.lens)
+    corners, _ = ov.camera_square(cam, z)
+    uv, _ = cam.image_points(np.column_stack([corners, np.zeros(4)]))
+    session["cones"] = [{"name": n, "x": float(x), "y": float(y), "u": float(u), "v": float(v)}
+                        for n, (x, y), (u, v) in zip(ov.CORNERS, corners, uv)]
+    result, solved, _ = ss.evaluate(session)
+    assert result["pose"]["solved"] and not result["overlay_allowed"] and result["steps"]["overlay"] is None
+    frame = np.zeros((720, 1280, 3), np.uint8)
+    rp.write(session, result, solved, z, str(reports), frame)
+    assert not cv2.imread(str(reports / "overlay.png")).any()
+    path = ss.save(session, str(reports / "s.json"))
+    video = syn.write_recording(reports / "wide.mp4", syn.level_camera(), seconds=0.2, size=(1280, 720))
+    assert main(["overlay", "--session", path, "--file", str(video)]) == 1
+
+
+def test_record_makes_its_folder_and_reports_failure(reports, recording, tmp_path, capsys):
+    out = tmp_path / "new" / "folder" / "r.mp4"
+    assert main(["record", "--url", recording[0], "--seconds", "0.2", "--out", str(out)]) == 0
+    assert out.stat().st_size > 100
+    assert main(["record", "--url", recording[0], "--seconds", "0.2", "--out", str(tmp_path / "bad.nope")]) == 1
+    assert "cannot record" in capsys.readouterr().err
+
+
+def test_bad_command_line_numbers_are_refused(capsys):
+    for args in (["layout", "--rho", "0"], ["zone", "--focal", "-1"], ["serve", "--rho", "nan"]):
+        with pytest.raises(SystemExit):
+            main(args)
+    assert "above 0" in capsys.readouterr().err
+
+
+def test_calibrating_from_no_images_says_so(tmp_path, capsys):
+    assert main(["calibrate", "--images", str(tmp_path / "none*.png")]) == 1
+    assert "no images" in capsys.readouterr().err
+
+
+STEP = {"distance_m": 5.0, "frames": 10, "detected": 10, "rate": 1.0, "box_h_px": 300.0, "confidence": 0.8, "predicted_h_px": None}
+
+
+@pytest.mark.parametrize("rows, expected", [
+    ([], None),                                                          # no step at all
+    ([{**STEP, "frames": 0, "detected": 0, "rate": float("nan"), "box_h_px": float("nan")}], None),   # steps outside the recording
+    ([STEP, {**STEP, "distance_m": 10.0, "box_h_px": 95.0}], True),      # holds down to 95 px
+    ([STEP, {**STEP, "distance_m": 10.0, "box_h_px": 225.0}], False),    # perfect, but stopped at 225 px
+    ([STEP, {**STEP, "distance_m": 10.0, "detected": 0, "rate": 0.0, "box_h_px": float("nan")}], False),   # lost at 300 px
+    ([{**STEP, "detected": 0, "rate": 0.0, "box_h_px": float("nan")}], False),                             # never seen
+])
+def test_detection_needs_90_percent_down_to_100_px(rows, expected):
+    frames = sum(r["frames"] for r in rows)
+    sweep = {"point_90": sw.point_90(rows), "frames": frames, "reliable_to_px": sw.reliable_to(rows)}
+    json.dumps(sweep, allow_nan=False)                                   # goes to session.json and the page
+    assert sw.detection_ok(sweep) is expected
+
+
+def test_sweep_uses_the_apps_detector_settings_and_needs_a_pose(reports, tmp_path, capsys, monkeypatch):
+    """Same confidence as the app's yolo mode. Without a pose the sweep runs but isn't judged."""
+    import app.detect
+    made = {}
+
+    class Yolo:
+        def __init__(self, model, conf, tiles=False):
+            made.update(model=model, conf=conf, tiles=tiles)
+
+        def scored(self, frame):
+            return []
+
+    monkeypatch.setattr(app.detect, "YoloDetector", Yolo)
+    cam = syn.level_camera()
+    video = syn.write_recording(tmp_path / "walk.mp4", cam, seconds=0.5)
+    (tmp_path / "steps.csv").write_text("t0,t1,distance_m\n0,0.4,5\n")
+    path = ss.save(ss.new(syn.STREAM), str(tmp_path / "s.json"))
+    assert main(["sweep", "--file", str(video), "--model", "m.onnx", "--steps", str(tmp_path / "steps.csv"), "--session", path]) == 0
+    assert made["conf"] == 0.4
+    assert "won't be judged" in capsys.readouterr().out
+    session = ss.load(path)
+    assert session["sweep"]["frames"] > 0 and ss.evaluate(session)[0]["steps"]["detection"] is None
+    text = rp.markdown(session, ss.evaluate(session)[0])
+    assert "Not judged" in text and "| detection | not run |" in text
+    uv, _ = cam.image_points([[x, y, 0.0] for x, y in CONES.values()])
+    session["cones"] = [{"name": n, "x": x, "y": y, "u": float(u), "v": float(v)} for (n, (x, y)), (u, v) in zip(CONES.items(), uv)]
+    assert ss.evaluate(session)[0]["steps"]["detection"] is False        # with a pose: never seen, so it fails
 
 
 def test_changing_focal_on_the_page_changes_the_lens(reports, recording):

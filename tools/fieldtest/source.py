@@ -80,8 +80,12 @@ class Source:
 
     def writer(self, path):
         """A video writer for this source's frames."""
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         fps = self.file_fps if 0 < self.file_fps < 61 else 15.0
-        return cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, tuple(self.size))
+        w = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, tuple(self.size))
+        if not w.isOpened():
+            raise OSError(f"cannot record to {path}")
+        return w
 
     def read(self):
         """(frame, t seconds) or (None, None) at the end of a recording."""

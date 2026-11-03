@@ -31,7 +31,11 @@ The tool SHALL calibrate the lens from at least 12 checkerboard views (default 9
 
 #### Scenario: A saved lens belongs to its focal length
 - **WHEN** a lens calibrated at 23 mm is saved and the tool runs at the same stream size with 28 mm set
-- **THEN** it uses the nominal lens for 28 mm, not the saved one, until the lens is calibrated at 28 mm
+- **THEN** it uses the nominal lens for 28 mm, not the saved one, until the lens is calibrated at 28 mm, and the 23 mm lens, views and clicks are there again on going back
+
+#### Scenario: A bad fit isn't saved
+- **WHEN** a fit's reprojection error is over the pass band, or its fx is more than 15% from the nominal at the set focal length
+- **THEN** the tool says why and keeps the previous calibration
 
 #### Scenario: Synthetic calibration (P05)
 - **WHEN** the calibration runs on 15 synthetic checkerboard views rendered with fx = 957 px
@@ -118,6 +122,10 @@ The tool SHALL optionally run the twin's YOLO person detector (`app.detect`, sam
 #### Scenario: Sweep report
 - **WHEN** a squatting person is recorded at 1 m steps from 3 m to 20 m
 - **THEN** the report gives the detection rate at each step and the box height at the 90% point
+
+#### Scenario: Detection verdict
+- **WHEN** the sweep ends
+- **THEN** detection passes only if the rate holds 90% down to a 100 px box; a sweep that never reached that box fails, and one with no judged frames or no solved pose reads "not run"
 
 ### Requirement: Record and replay
 The tool SHALL record the stream to a file in `reports/fieldtest/<date>/` and every step (calibration, pose, overlay, measurement, sweep) SHALL run on a recording as well as live.

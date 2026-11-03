@@ -33,6 +33,11 @@ def square(z, origin=(0.0, 0.0), heading_deg=0.0):
     return corners, o + fwd * z["d"]
 
 
+def _along(a, b, steps):
+    """`steps` ground points along each segment a[i] to b[i], in order: (len(a) · steps, 2)."""
+    return (a[:, None] + (b - a)[:, None] * np.linspace(0, 1, steps)[None, :, None]).reshape(-1, 2)
+
+
 def camera_square(cam, z):
     """The square straight ahead of this camera."""
     return square(z, cam.pos[:2], cam.heading_deg)
@@ -85,8 +90,7 @@ def zone_box(cam, z, steps=24):
     """The square in the real image: each corner's pixel and the bounding box of its outline (edges
     bent through the lens), or None when part of it is behind the camera."""
     corners, _ = camera_square(cam, z)
-    t = np.linspace(0, 1, steps)[:, None]
-    edge = np.vstack([a + (b - a) * t for a, b in zip(corners, np.roll(corners, -1, axis=0))])
+    edge = _along(corners, np.roll(corners, -1, axis=0), steps)
     uv, depth = cam.image_points(np.column_stack([edge, np.zeros(len(edge))]))
     if np.any(depth <= 0):
         return None
@@ -144,7 +148,7 @@ def _poly(img, cam, ground_xy, colour, closed=True, thickness=2, steps=24):
     """Draw a ground polygon, each edge bent through the lens."""
     g = np.asarray(ground_xy, dtype=np.float64)
     a, b = (g, np.roll(g, -1, axis=0)) if closed else (g[:-1], g[1:])
-    p = (a[:, None] + (b - a)[:, None] * np.linspace(0, 1, steps)[None, :, None]).reshape(-1, 2)
+    p = _along(a, b, steps)
     uv, z = cam.image_points(np.column_stack([p, np.zeros(len(p))]))
     edges = zip(uv.reshape(len(a), steps, 2), (z > 0.05).reshape(len(a), steps) & _drawable(uv).reshape(len(a), steps))
     lines = [np.round(e[ok] * 4).astype(np.int32) for e, ok in edges if ok.sum() >= 2]

@@ -43,6 +43,13 @@ def _size(text):
     return int(w), int(h)
 
 
+def _positive(text):
+    v = float(text)
+    if not (v > 0 and math.isfinite(v)):
+        raise argparse.ArgumentTypeError(f"{text} must be a number above 0")
+    return v
+
+
 def _frame_at(path, index=0):
     s = src.Source(path)
     try:
@@ -63,7 +70,7 @@ def _preset_session(a, phone):
 
 def _which_lens(lens):
     if lens.calibrated:
-        return f"calibrated lens: fx {lens.fx:.1f} px ({os.path.basename(ln.calib_path(REPORTS, lens.size))})"
+        return f"calibrated lens: fx {lens.fx:.1f} px, saved at {lens.focal_equiv_mm:g} mm"
     return "nominal lens (not calibrated at this size and focal length)"
 
 
@@ -84,7 +91,8 @@ def build_parser():
     p.add_argument("--bind", default="127.0.0.1", help="address to listen on (default 127.0.0.1: this PC only)")
     p.add_argument("--port", type=int, default=8090)
     p.add_argument("--preset", default="default")
-    p.add_argument("--rho", type=float)
+    p.add_argument("--rho", type=_positive)
+    p.add_argument("--focal", type=_positive, help="equivalent focal length, mm (default: the session's, else the preset's)")
     p = sub.add_parser("record", help="record the stream to reports/fieldtest/<date>/")
     p.add_argument("--url")
     p.add_argument("--seconds", type=float, default=60.0)
@@ -93,16 +101,17 @@ def build_parser():
     p.add_argument("--file")
     p.add_argument("--images")
     p.add_argument("--every", type=int, default=10, help="use every n-th frame of a recording")
-    p.add_argument("--focal", type=float, help="equivalent focal length for the nominal comparison")
+    p.add_argument("--focal", type=_positive, help="equivalent focal length it was filmed at, mm (default: the main camera's 23)")
+    p.add_argument("--force", action="store_true", help="save the fit even if it fails the checks")
     layout = sub.add_parser("layout", help="the cone layout sheet")
     zone = sub.add_parser("zone", help="S, d, z_near, z_far and the square's bounding box in the image")
     for p in (layout, zone):
         p.add_argument("--preset", default="default")
-        p.add_argument("--rho", type=float)
+        p.add_argument("--rho", type=_positive)
         p.add_argument("--size", type=_size)
-        p.add_argument("--focal", type=float)
+        p.add_argument("--focal", type=_positive)
     zone.add_argument("--session", help="use the session's calibrated lens and solved pose")
-    zone.add_argument("--height", type=float, help="phone height, m (default: the preset's)")
+    zone.add_argument("--height", type=_positive, help="phone height, m (default: the preset's)")
 
     pose = sub.add_parser("pose", help="solve the pose from the session's cones")
     overlay = sub.add_parser("overlay", help="draw the overlay on a frame of a recording")
@@ -121,7 +130,7 @@ def build_parser():
     sweep.add_argument("--model", required=True, help="person-detector ONNX, as the app's yolo mode")
     sweep.add_argument("--steps", required=True, help="CSV: t0,t1,distance_m (when the person was at each mark)")
     sweep.add_argument("--tiles", action="store_true")
-    sweep.add_argument("--height", type=float, default=1.0, help="person height for the prediction, m")
+    sweep.add_argument("--height", type=_positive, default=1.0, help="person height for the prediction, m")
 
     p = sub.add_parser("distortion", help="ultra-wide distortion test from photos")
     p.add_argument("--images", required=True)
@@ -153,10 +162,14 @@ def main(argv=None):
         import uvicorn
 
         from tools.fieldtest.web import Live, make_app
-        live = Live(a.file or url, a.preset, a.rho, loop=bool(a.file))
+        live = Live(a.file or url, a.preset, a.rho, loop=bool(a.file), focal=a.focal)
         for w in live.src.warnings:
             print("WARNING:", w)
         print(f"{live.src.shown}: {live.src.size[0]} × {live.src.size[1]}; page on http://{a.bind}:{a.port}/")
+        others = ln.saved_focals(REPORTS, live.src.size)
+        if not live.session["lens"] and others:
+            print(f"no calibration at {live.session['focal_equiv_mm']:g} mm; saved at "
+                  f"{', '.join(f'{f:g}' for f in others)} mm: use --focal for one of those")
         if live.session["cones"] or live.session["measurements"]:
             print(f"continuing today's session: {len(live.session['cones'])} markers and "
                   f"{len(live.session['measurements'])} measurements kept; if the phone moved, undo the markers")
@@ -170,7 +183,11 @@ def main(argv=None):
         s = src.Source(url)
         frame, _ = s.read()
         out = a.out or os.path.join(report_dir(), time.strftime(src.REC_NAME))
-        w = s.writer(out)
+        try:
+            w = s.writer(out)
+        except OSError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
         t0 = time.monotonic()
         while frame is not None and time.monotonic() - t0 < a.seconds:
             w.write(frame)
@@ -186,14 +203,20 @@ def main(argv=None):
         else:
             images = (f for i, (_, f) in enumerate(src.Source(a.file)) if i % a.every == 0)
         focal = a.focal or phone["main"]["focal_equiv_mm"]
-        lens = cb.calibrate_images(images, *cb.board_settings(phone))
+        try:
+            lens = cb.calibrate_images(images, *cb.board_settings(phone))
+            if not a.force:
+                cb.check_fit(lens, focal, phone["pass"]["lens_rms_px"])
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
         path = ln.save(lens, REPORTS, focal)
         n = cb.against_nominal(lens, focal)
         print(f"{lens.views} views at {lens.size[0]} × {lens.size[1]}: reprojection {lens.rms:.3f} px "
               f"({'PASS' if lens.rms <= phone['pass']['lens_rms_px'] else 'FAIL'}, at most {phone['pass']['lens_rms_px']} px)")
         print(f"fx {n['fx']:.1f} px, fy {n['fy']:.1f} px against nominal f/p {n['nominal_fp']:.1f} px ({n['diff_pct']:+.2f}%)")
         print(describe_pitch(phone, lens.size[0], a.focal))
-        print(f"saved {path}")
+        print(f"saved {path} (as the {focal:g} mm lens; --focal if it was filmed at another)")
         return 0
 
     if a.cmd == "distortion":
@@ -233,6 +256,9 @@ def main(argv=None):
         return 0 if result["steps"]["pose"] is not False else 1
 
     if a.cmd == "overlay":
+        if not result["overlay_allowed"]:
+            print(f"ERROR: {src.shape_warning(*session['size'])}", file=sys.stderr)
+            return 1
         out = a.out or os.path.join(report_dir(), "overlay.png")
         cv2.imwrite(out, rp.annotate(_frame_at(a.file, a.frame), session, cam, z))
         for c in result["corners"]:
@@ -250,12 +276,15 @@ def main(argv=None):
         return 0 if result["steps"]["density"] is not False else 1
 
     if a.cmd == "sweep":
-        from app.detect import YoloDetector
+        from app.detect import make_detector
         with open(a.steps) as f:
             steps = [(float(r["t0"]), float(r["t1"]), float(r["distance_m"])) for r in csv.DictReader(f)]
-        r = sw.run(src.Source(a.file), YoloDetector(a.model, conf=0.25, tiles=a.tiles), cam, steps)
+        if cam.preview:
+            print("WARNING: the pose isn't solved, so the feet are placed with an assumed camera: detection won't be judged")
+        det = make_detector({"mode": "yolo", "model": a.model, "tiles": a.tiles})      # as the app runs it
+        r = sw.run(src.Source(a.file), det, cam, steps)
         folder = sw.write(r, a.out or os.path.dirname(os.path.abspath(a.session)), cam, a.height)
-        session["sweep"] = {"point_90": r["point_90"]}
+        session["sweep"] = {k: r[k] for k in ("point_90", "frames", "reliable_to_px")}
         ss.save(session, a.session)
         for s in r["steps"]:
             print(f"{s['distance_m']:5.1f} m: {s['detected']}/{s['frames']} frames ({100 * s['rate']:.0f}%), box {s['box_h_px']:.0f} px")

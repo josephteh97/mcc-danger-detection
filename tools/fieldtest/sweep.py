@@ -14,6 +14,7 @@ from app.alarm import foot_pixel
 
 REFERENCE_PX = (100, 80, 50)
 RATE_OK = 0.9
+REQUIRED_PX = 100                   # the twin's box for a 1 m squatting worker at the required density
 
 
 def run(frames, det, cam, steps, window_m=0.75):
@@ -40,7 +41,7 @@ def run(frames, det, cam, steps, window_m=0.75):
                      "box_h_px": float(np.median([h for h, _ in hit])) if hit else float("nan"),
                      "confidence": float(np.mean([c for _, c in hit])) if hit else float("nan"),
                      "predicted_h_px": None})
-    return {"detections": dets, "steps": rows, "point_90": point_90(rows)}
+    return {"detections": dets, "steps": rows, "point_90": point_90(rows), "frames": sum(seen), "reliable_to_px": reliable_to(rows)}
 
 
 def point_90(rows):
@@ -53,8 +54,26 @@ def point_90(rows):
             h = a["box_h_px"] + f * (b["box_h_px"] - a["box_h_px"]) if not math.isnan(b["box_h_px"]) else a["box_h_px"]
             return {"distance_m": a["distance_m"] + f * (b["distance_m"] - a["distance_m"]), "box_h_px": h}
     if ok and ok[0]["rate"] < RATE_OK:
-        return {"distance_m": ok[0]["distance_m"], "box_h_px": ok[0]["box_h_px"]}
+        h = ok[0]["box_h_px"]
+        return {"distance_m": ok[0]["distance_m"], "box_h_px": None if math.isnan(h) else h}
     return None
+
+
+def reliable_to(rows):
+    """The smallest box height the rate holds 90% down to, or None if it never does or no frame was judged."""
+    p90 = point_90(rows)
+    if p90:
+        return p90["box_h_px"]
+    boxes = [r["box_h_px"] for r in rows if r["frames"] and not math.isnan(r["box_h_px"])]
+    return min(boxes) if boxes else None
+
+
+def detection_ok(sweep):
+    """The sweep's result: reliable down to the twin's 100 px box. None if no frame fell inside a step."""
+    if not sweep.get("frames"):
+        return None
+    px = sweep.get("reliable_to_px")
+    return px is not None and px <= REQUIRED_PX
 
 
 def write(result, folder, cam, person_h_m=1.0):

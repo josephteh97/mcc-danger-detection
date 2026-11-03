@@ -50,9 +50,10 @@ A3 checkerboard with 10 × 7 squares (9 × 6 inner corners) of 36 mm.
 
 ## 1. Calibrate the lens
 
-Do this once per stream size. Don't change the app's resolution or zoom afterwards, or calibrate
-again. The result is saved to `reports/fieldtest/calib_1280x720.json` and loaded every time the
-page starts.
+Do this once per stream size and focal length. Don't change the app's resolution or zoom
+afterwards, or calibrate again. The result is saved to `reports/fieldtest/calib_1280x720_23mm.json`
+and loaded every time the page starts at that focal length (`serve --focal 28` starts at 28 mm; the
+day's session remembers its own).
 
 1. Put the phone on its mount. **Keep the phone still and move the board.**
 2. Hold the board between about **0.6 m and 1.5 m** from the phone.
@@ -76,7 +77,8 @@ page starts.
 
 **Result** (shown in the panel on the right):
 
-- `lens: PASS` when the reprojection error is **0.5 px or less**.
+- `lens: PASS` when the reprojection error is **0.5 px or less**. A fit over 0.5 px, or more than
+  15% off the nominal fx, gets a message and isn't saved: the previous calibration stays.
 - The fit uses k1 and k2 only: the phone already corrects its main camera's distortion, and
   freer models bend the picture corners the views don't pin down.
 - `f/p … (nominal 850.4, …%)`: the measured fx against the phone's published lens. A few percent
@@ -88,8 +90,10 @@ page starts.
 | Message or result | What to do |
 |---|---|
 | "N checkerboard views found; at least 12 are needed" | Capture more views. |
+| "same picture as an earlier view" | Move the board. If you did, the stream has frozen: press ▶ on the phone. |
+| "the stream changed size" | Set the app back to 720p, or restart the page and calibrate at the new size. |
 | Reprojection over 0.5 px | Press **Clear views** and capture again: board flatter, held stiller, more views in the corners. |
-| fx far from 850 (more than about 10%) | Check `square_mm` is 36 in `fieldtest/phone.yaml`, that the app is at 720p and zoom 1×, then calibrate again. |
+| fx far from 850 (over 15% is refused) | Check `square_mm` is 36 in `fieldtest/phone.yaml`, that the app is at 720p and zoom 1×, then calibrate again. If it was filmed at another focal length, set **focal** first. |
 
 A saved calibration stays, and so do the captured views (until **Clear views**).
 
@@ -112,20 +116,24 @@ A saved calibration stays, and so do the captured views (until **Clear views**).
    ```
 
    It prints the reprojection (PASS at 0.5 px or less) and fx against the nominal 850 px, and
-   saves the same `calib_1280x720.json` the page loads. With fewer than 12 board views found,
-   use `--every 5` or record again more slowly.
+   saves the same `calib_1280x720_23mm.json` the page loads (`--focal` if it was filmed at another
+   focal length). Repeated pictures count once. With fewer than 12 board views found, record again
+   with more different positions, or try `--every 5`. A fit that fails the checks isn't saved;
+   `--force` saves it anyway.
 4. Delete the recording afterwards if it shows people. Press ▶ on the phone again before `serve`.
 
 **Moving the phone after calibrating is fine:** the calibration describes the lens, not where the
 phone stands; the markers give the new position. Keep the same resolution (720p), zoom 1×, main
 camera, landscape the same way round and stabilisation off. If any of these changes, calibrate
 again. A calibration only applies at the focal length it was made at (the page's **focal** box):
-at another one the tool goes back to the nominal lens.
+at another one the tool goes back to the nominal lens. Each focal length keeps its own lens, views
+and clicks, so changing the box and coming back loses nothing. An older
+`calib_1280x720.json` counts as 23 mm.
 
 **Before the markers are clicked** the page draws the square for a phone at the taped height
 aimed at the square's centre, and says "pose not solved" on the picture. It only lands on the
 floor marks once the markers are clicked (step 4), so don't judge the calibration by it. The
-captured views are saved (`reports/fieldtest/views_1280x720.json`) and survive a page restart;
+captured views are saved (`reports/fieldtest/views_1280x720_23mm.json`) and survive a page restart;
 **Clear views** starts a fresh set.
 
 ## 2. Mark the floor

@@ -8,13 +8,15 @@ import cv2
 import numpy as np
 
 from tools.fieldtest import nominal_fp
-from tools.fieldtest.lens import FieldLens, same_focal
+from tools.fieldtest.lens import FieldLens, focal_file, focal_path
 
 _SUBPIX = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_MAX_ITER, 50, 1e-4)
 # The phone corrects its main camera's distortion, so only k1 and k2 are left to fit: with k3 and
 # the tangential terms free, k2 and k3 trade off and bend the corners the views don't pin down.
 # The ultra-wide (distortion off) needs the full model.
 MODELS = {"main": cv2.CALIB_FIX_K3 | cv2.CALIB_ZERO_TANGENT_DIST, "wide": 0}
+REPEAT_PX = 0.5                     # corners this close (mean) to an earlier view add nothing: a frozen stream, a still board
+FOCAL_OFF_PCT = 15.0                # more than this from nominal is another focal length (23 to 28 mm is 22%)
 
 
 def board_points(pattern, square_m):
@@ -32,6 +34,12 @@ def find_corners(img, pattern):
     if not ok:
         return None
     return cv2.cornerSubPix(grey, corners, (5, 5), (-1, -1), _SUBPIX)
+
+
+def is_repeat(corners, views):
+    """Whether these corners are the same view as one already kept."""
+    c = np.asarray(corners, np.float64).reshape(-1, 2)
+    return any(np.linalg.norm(c - np.asarray(v, np.float64).reshape(-1, 2), axis=1).mean() < REPEAT_PX for v in views)
 
 
 def calibrate(corner_sets, pattern, square_m, size, min_views=12, model="main"):
@@ -54,13 +62,31 @@ def board_settings(phone):
 
 def calibrate_images(images, pattern, square_m, min_views=12, model="main"):
     """The lens from images of one size. `images` can be any iterable: only their corners are kept."""
-    sizes, corners = set(), []
+    size, corners = None, []
     for im in images:
-        sizes.add((im.shape[1], im.shape[0]))
-        corners.append(find_corners(im, pattern))
-    if len(sizes) != 1:
-        raise ValueError(f"views of several sizes {sorted(sizes)}: calibrate each size separately")
-    return calibrate(corners, pattern, square_m, sizes.pop(), min_views, model)
+        if im is None:                  # a file that isn't an image
+            continue
+        shape = (im.shape[1], im.shape[0])
+        if size not in (None, shape):
+            raise ValueError(f"views of several sizes {size} and {shape}: calibrate each size separately")
+        size = shape
+        c = find_corners(im, pattern)
+        if c is not None and not is_repeat(c, corners):
+            corners.append(c)
+    if size is None:
+        raise ValueError("no images to calibrate from")
+    return calibrate(corners, pattern, square_m, size, min_views, model)
+
+
+def check_fit(lens, focal_equiv_mm, rms_limit):
+    """Raise ValueError if this fit must not replace a saved lens: too rough, or fx not of this focal length."""
+    if lens.rms > rms_limit:
+        raise ValueError(f"reprojection {lens.rms:.3f} px is over {rms_limit} px: not saved, the previous calibration stays. "
+                         "Capture again: board flatter, held stiller, more views in the corners")
+    n = against_nominal(lens, focal_equiv_mm)
+    if abs(n["diff_pct"]) > FOCAL_OFF_PCT:
+        raise ValueError(f"fx {n['fx']:.1f} px is {n['diff_pct']:+.1f}% from the nominal {n['nominal_fp']:.1f} px at "
+                         f"{float(focal_equiv_mm):g} mm: not saved. If this was filmed at another focal length, set it and calibrate again")
 
 
 def against_nominal(lens, focal_equiv_mm):
@@ -69,27 +95,20 @@ def against_nominal(lens, focal_equiv_mm):
     return {"nominal_fp": nom, "fx": lens.fx, "fy": lens.fy, "diff_pct": 100.0 * (lens.fx - nom) / nom}
 
 
-def views_path(folder, size):
-    return os.path.join(folder, f"views_{size[0]}x{size[1]}.json")
-
-
-def save_views(views, folder, size, focal_equiv_mm=None):
-    """The captured corner sets, so a restarted page (or a refit) keeps them."""
+def save_views(views, folder, size, focal_equiv_mm):
+    """The captured corner sets, so a restarted page (or a refit) keeps them. Each focal length has its own."""
     os.makedirs(folder, exist_ok=True)
-    with open(views_path(folder, size), "w") as f:
+    with open(focal_path("views", folder, size, focal_equiv_mm), "w") as f:
         json.dump({"focal_equiv_mm": focal_equiv_mm,
                    "views": [np.asarray(v, np.float64).reshape(-1, 2).tolist() for v in views]}, f)
 
 
-def load_views(folder, size, focal_equiv_mm=None):
-    """The views captured at this size and focal length (a list: a file from before focal was recorded)."""
-    path = views_path(folder, size)
-    if not os.path.exists(path):
+def load_views(folder, size, focal_equiv_mm):
+    """The views captured at this size and focal length (a plain list: a file from before focal was recorded)."""
+    path = focal_file("views", folder, size, focal_equiv_mm)
+    if path is None:
         return []
     with open(path) as f:
         data = json.load(f)
-    if isinstance(data, list):
-        data = {"focal_equiv_mm": None, "views": data}
-    if not same_focal(data["focal_equiv_mm"], focal_equiv_mm):
-        return []
-    return [np.asarray(v, np.float32).reshape(-1, 1, 2) for v in data["views"]]
+    views = data if isinstance(data, list) else data["views"]
+    return [np.asarray(v, np.float32).reshape(-1, 1, 2) for v in views]

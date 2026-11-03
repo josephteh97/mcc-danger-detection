@@ -7,15 +7,18 @@ included), so the overlay and the measurements use the twin's one projection.
 """
 from __future__ import annotations
 
+import glob
 import json
 import math
 import os
+import re
 
 import cv2
 import numpy as np
 
 from world.camera import PinholeCamera
 
+LEGACY_FOCAL_MM = 23                 # files from before the focal length was recorded: the main camera's
 SHORT_M = 0.05                       # a short pole, for the density at one point
 _ITER = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 100, 1e-10)
 
@@ -72,33 +75,53 @@ class FieldLens:
         return cls(**d)
 
 
-def calib_path(folder, size):
-    return os.path.join(folder, f"calib_{size[0]}x{size[1]}.json")
+def focal_path(kind, folder, size, focal_equiv_mm):
+    """Where a calibration ("calib") or captured views ("views") of this size and focal length are saved."""
+    return os.path.join(folder, f"{kind}_{size[0]}x{size[1]}_{float(focal_equiv_mm):g}mm.json")
 
 
-def same_focal(a, b):
-    """Whether two equivalent focal lengths agree; a file saved before they were recorded has none."""
-    return a is None or b is None or float(a) == float(b)
+def _old_focal(path):
+    """The focal length of a file from when each size had one file."""
+    with open(path) as f:
+        data = json.load(f)
+    return float((data.get("focal_equiv_mm") if isinstance(data, dict) else None) or LEGACY_FOCAL_MM)
 
 
-def save(lens, folder, focal_equiv_mm=None):
-    """Save the lens, noting the focal length it was calibrated at."""
-    lens.focal_equiv_mm = focal_equiv_mm or lens.focal_equiv_mm
+def focal_file(kind, folder, size, focal_equiv_mm):
+    """The saved file for this size and focal length, or None: its own, else an older one made at it."""
+    path = focal_path(kind, folder, size, focal_equiv_mm)
+    if os.path.exists(path):
+        return path
+    old = os.path.join(folder, f"{kind}_{size[0]}x{size[1]}.json")
+    return old if os.path.exists(old) and _old_focal(old) == float(focal_equiv_mm) else None
+
+
+def saved_focals(folder, size):
+    """The focal lengths with a saved lens at this size."""
+    stem = os.path.join(folder, f"calib_{size[0]}x{size[1]}")
+    found = {float(m[1]) for p in glob.glob(glob.escape(stem) + "_*mm.json") if (m := re.search(r"_([0-9.]+)mm\.json$", p))}
+    return sorted(found | ({_old_focal(stem + ".json")} if os.path.exists(stem + ".json") else set()))
+
+
+def save(lens, folder, focal_equiv_mm):
+    """Save the lens under the focal length it was calibrated at: other focal lengths keep theirs."""
+    lens.focal_equiv_mm = focal_equiv_mm
     os.makedirs(folder, exist_ok=True)
-    path = calib_path(folder, lens.size)
+    path = focal_path("calib", folder, lens.size, focal_equiv_mm)
     with open(path, "w") as f:
         json.dump(lens.to_dict(), f, indent=1)
     return path
 
 
-def load(folder, size, focal_equiv_mm=None):
+def load(folder, size, focal_equiv_mm):
     """The lens calibrated at this stream size and focal length, or None."""
-    path = calib_path(folder, size)
-    if not os.path.exists(path):
+    path = focal_file("calib", folder, size, focal_equiv_mm)
+    if path is None:
         return None
     with open(path) as f:
         lens = FieldLens.from_dict(json.load(f))
-    return lens if same_focal(lens.focal_equiv_mm, focal_equiv_mm) else None
+    lens.focal_equiv_mm = focal_equiv_mm
+    return lens
 
 
 # --------------------------------------------------------------------------- camera

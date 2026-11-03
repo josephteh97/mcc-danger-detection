@@ -14,6 +14,8 @@ from tools.fieldtest import load_phone, nominal_fp
 from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
 from tools.fieldtest import pose as ps
+from tools.fieldtest import source as src
+from tools.fieldtest import sweep as sw
 from tools.fieldtest.calib import against_nominal
 
 
@@ -32,6 +34,22 @@ def load_saved_lens(session, folder):
     if lens:
         session["lens"] = lens.to_dict()
     return session
+
+
+def set_focal(session, focal, folder):
+    """Change the focal length: its own lens and clicks come in, and this one's are kept for coming
+    back. A click locates a point only in the picture it was made on. Returns whether it changed."""
+    old, focal = float(session["focal_equiv_mm"]), float(focal)
+    if focal == old:
+        return False
+    parked = session.setdefault("parked", {})
+    parked[f"{old:g}"] = {"cones": session["cones"], "measurements": session["measurements"], "sweep": session.pop("sweep", None)}
+    back = parked.pop(f"{focal:g}", {})
+    session.update(focal_equiv_mm=focal, lens=None, cones=back.get("cones", []), measurements=back.get("measurements", []))
+    if back.get("sweep"):
+        session["sweep"] = back["sweep"]
+    load_saved_lens(session, folder)
+    return True
 
 
 def save(session, path):
@@ -108,7 +126,10 @@ def evaluate(session):
     out["layout"] = ov.layout(z)
     out["corners"] = ov.corner_table(cam, z)
     out["box"] = ov.zone_box(cam, z)
+    out["overlay_allowed"] = src.overlay_allowed(session["size"], lens)
     overlay = overlay_check(session, cam, z, band["overlay_pct_of_width"])
+    if not out["overlay_allowed"]:               # 16:9 and so on: the nominal lens doesn't apply here
+        overlay = {"rows": [{**r, "ok": None} for r in overlay["rows"]], "ok": None}
     rows = [ms.measure(cam, m["bottom"], m["top"], m.get("length_m", 1.0), m.get("label", ""),
                        band["density_pct"], band["density_floor_px"]) for m in session["measurements"]]
     if not pose["solved"]:                       # the aimed camera is a preview: nothing to judge against it
@@ -117,9 +138,8 @@ def evaluate(session):
     out["overlay"], out["measurements"] = overlay, rows
     out["steps"]["overlay"] = overlay["ok"]
     out["steps"]["density"] = all(r["result"] == "PASS" for r in rows) if rows and pose["solved"] else None
-    if session.get("sweep"):                     # reliable down to the twin's 100 px box
-        p90 = session["sweep"].get("point_90")
-        out["steps"]["detection"] = p90 is None or p90["box_h_px"] <= 100
+    if session.get("sweep"):                     # the feet are placed with the camera: judged only with a pose
+        out["steps"]["detection"] = sw.detection_ok(session["sweep"]) if pose["solved"] else None
     return out, cam, z
 
 

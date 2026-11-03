@@ -10,6 +10,7 @@ import cv2
 from tools.fieldtest import measure as ms
 from tools.fieldtest import overlay as ov
 from tools.fieldtest import pose as ps
+from tools.fieldtest import sweep as sw
 from tools.fieldtest.lens import FieldLens
 
 PRIVACY = ("Recordings and stills that show people are personal data: delete them once the test is "
@@ -39,7 +40,7 @@ def write(session, result, cam, z, folder, frame=None):
     os.makedirs(folder, exist_ok=True)
     ms.write_csv(result["measurements"], os.path.join(folder, "measurements.csv"))
     if frame is not None:
-        cv2.imwrite(os.path.join(folder, "overlay.png"), annotate(frame, session, cam, z))
+        cv2.imwrite(os.path.join(folder, "overlay.png"), annotate(frame, session, cam, z) if result["overlay_allowed"] else frame)
     with open(os.path.join(folder, "layout.txt"), "w") as f:
         f.write(ov.describe_layout(result["layout"]) + "\n")
     path = os.path.join(folder, "report.md")
@@ -85,9 +86,16 @@ def markdown(session, r):
               f"{ms.num(m['error_pct'], '+.1f')}% | {m['result']} |" for m in r["measurements"]]
     sweep = session.get("sweep")
     if sweep:
-        p90 = sweep.get("point_90")
-        lines += ["", "## Detection sweep", "",
-                  f"90% point: {p90['distance_m']:.1f} m at a {p90['box_h_px']:.0f} px box." if p90 else "Detection rate never fell below 90%.",
-                  "See sweep.png and sweep_steps.csv."]
+        p90, px = sweep.get("point_90"), sweep.get("reliable_to_px")
+        if not sweep.get("frames"):
+            found = "No frame fell inside a step: nothing to judge."
+        elif p90:
+            found = f"90% point: {p90['distance_m']:.1f} m at a {ms.num(p90['box_h_px'], '.0f')} px box."
+        else:
+            found = f"The rate held 90% at every step, down to a {ms.num(px, '.0f')} px box; the test needs {sw.REQUIRED_PX} px."
+        lines += ["", "## Detection sweep", "", found]
+        if not pose["solved"]:
+            lines.append("Not judged: the pose isn't solved, so the feet were placed with an assumed camera.")
+        lines.append("See sweep.png and sweep_steps.csv.")
     lines += ["", "## Privacy", "", PRIVACY, ""]
     return "\n".join(lines)
