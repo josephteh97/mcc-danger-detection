@@ -283,6 +283,7 @@ def test_zone_box_corridor(reports, capsys):
     session = ss.new((1280, 720), preset="corridor")
     lens = ss.lens_of(session)
     z = ss.zone_of(session, lens)
+    assert z["s"] <= 1.8 and z["z_max"] <= 2.5
     cam = ov.aimed(lens, z, 0.45)
     u, v = cam.image_points([[0.0, z["d"], 0.0]])[0][0]
     assert abs(u - 640) < 0.01 and abs(v - 360) < 0.01
@@ -306,7 +307,8 @@ def test_fitted_square_fills_the_frame_at_the_required_density(lens):
     assert min(rows[0]["px_per_m_3d"], rows[1]["px_per_m_3d"]) == pytest.approx(380, abs=0.5)
     assert box["in_frame"] and 1279 < box["box_px"][2] <= 1280
     assert z["s"] > ov.zone(lens.fx, 1280, 720, 380)["s"] * 1.05
-    assert ov.fit_zone(lens, 380, 0.45) is z             # worked out once: the page asks on every frame
+    assert z["s"] == pytest.approx(z["z_max"] - z["near"]) and z["d"] == pytest.approx(z["z_max"] - z["s"] / 2)
+    assert ov.fit_zone(lens, 380, 0.45) is z            # worked out once: the page asks on every frame
 
 
 def test_the_taped_square_stays_put_and_replaces_the_fit(reports):
@@ -335,9 +337,67 @@ def test_the_taped_square_is_drawn_on_its_marks_when_the_phone_is_off_the_origin
     result, solved, z = ss.evaluate(session)
     assert np.allclose(ov.camera_square(solved, z)[0], list(TAPED_MARKS.values()))
     assert all(r["off_px"] < 0.5 for r in result["overlay"]["rows"]) and result["steps"]["overlay"] is True
-    assert not np.allclose(ov.camera_square(solved, {**z, "taped": False})[0], list(TAPED_MARKS.values()))   # untaped: ahead of the phone
     u, v = solved.image_points([[*TAPED_MARKS["far left"], 0.0]])[0][0]
     assert tuple(ov.draw(np.zeros((720, 1280, 3), np.uint8), solved, z)[int(v), int(u)]) == ov.GREEN
+
+
+def test_an_untaped_square_follows_the_phone_and_fails_on_marks_taped_for_the_origin(reports):
+    """No taped square: it stays ahead of the solved phone, so an offset phone reads overlay FAIL."""
+    session = ss.new((1280, 720))
+    lens = ss.lens_of(session)
+    session["lens"] = {**lens.to_dict(), "source": "checkerboard", "rms": 0.2}
+    z = ss.zone_of(session, lens)
+    corners = ov.square(z)[0]
+    cam = ln.FieldCamera([-0.5, 0.5, 2.0], ln.rotation(16.0, 3.0, 0.0), lens)
+    session["cones"] = session_cones(cam, dict(zip(ov.CORNERS, map(tuple, corners))))
+    result, solved, _ = ss.evaluate(session)
+    assert np.allclose(ov.camera_square(solved, z)[0], ov.square(z, solved.pos[:2], solved.heading_deg)[0])
+    assert not np.allclose(ov.camera_square(solved, z)[0], corners, atol=0.1)
+    assert result["steps"]["overlay"] is False
+
+
+SHIPPED_LENS = ln.FieldLens((1280, 720), 877.19, 875.48, 651.07, 357.55, (0.0672, -0.0989, 0.0, 0.0, 0.0),
+                            rms=0.18, views=28, source="checkerboard")
+
+
+def test_ground_past_the_lens_fit_is_not_drawn_where_the_polynomial_folds_it():
+    """Far past the frame's corners the distortion polynomial brings points back into the picture."""
+    cam = ln.FieldCamera.posed(SHIPPED_LENS, 0.5, 17.0)
+    line = [[x, 2.0] for x in np.linspace(3.5, 4.5, 50)]
+    uv, ok = ov._placed(cam, line)
+    in_frame = (uv[:, 0] >= 0) & (uv[:, 0] < 1280) & (uv[:, 1] >= 0) & (uv[:, 1] < 720)
+    assert in_frame.sum() >= 2 and not ok.any()          # the test bites: folded points land on the picture
+    black = np.zeros((720, 1280, 3), np.uint8)
+    picture = black.copy()
+    ov._poly(picture, cam, line, ov.GRID, closed=False)
+    assert not picture.any()
+    ov._poly(picture, cam, [[-0.5, 2.0], [0.5, 2.0]], ov.GRID, closed=False)     # inside the fit: still drawn
+    assert picture.any()
+    pinhole = ln.FieldCamera.posed(ln.FieldLens.pinhole((1280, 720), 877.19), 0.5, 17.0)
+    assert ov._placed(pinhole, line)[1].all()            # no distortion, nothing to fold
+
+
+def test_a_label_at_the_right_edge_leaves_its_corner_mark_visible():
+    z = ov.fit_zone(SHIPPED_LENS, 380, 0.45)
+    cam = ov.aimed(SHIPPED_LENS, z, 0.45)
+    corners = ov.zone_box(cam, z)["corners_px"]
+    picture = ov.draw(np.zeros((720, 1280, 3), np.uint8), cam, z)
+
+    def dot_green(name):
+        """The share of the corner dot's core, where it is on the picture, still showing green."""
+        u, v = (int(c) for c in corners[name])
+        ys, xs = np.ogrid[:720, :1280]
+        disc = picture[(xs - u) ** 2 + (ys - v) ** 2 <= 16]
+        return float((disc == ov.GREEN).all(axis=-1).mean())
+    assert corners["near right"][0] > 1270 and dot_green("near right") > 0.9
+    assert dot_green("far left") > 0.9
+
+
+def test_a_label_with_room_stays_up_and_right_of_its_point():
+    img = np.zeros((100, 400, 3), np.uint8)
+    ov._label(img, (50, 50), "text", ov.GREEN)
+    ys, xs = np.nonzero(img.any(axis=-1))
+    assert xs.min() >= 50 and ys.max() < 50
 
 
 def test_a_session_saved_before_the_fit_takes_it_up_on_restart(reports):

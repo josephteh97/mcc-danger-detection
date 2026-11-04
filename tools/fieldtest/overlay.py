@@ -198,23 +198,35 @@ def _drawable(uv):
     return np.all(np.abs(uv) < 1e6, axis=-1)
 
 
+def _placed(cam, ground_xy):
+    """Ground points (N, 2) -> real image pixels, and which of them can be drawn: in front of the
+    camera and inside the calibrated part of the image. Beyond it the distortion polynomial folds
+    points back into the picture, where they would look like real ones."""
+    g = np.asarray(ground_xy, dtype=np.float64)
+    ideal, z = cam.project(np.column_stack([g, np.zeros(len(g))]))
+    uv = cam.lens.distort(ideal)
+    return uv, (z > 0.05) & cam.lens.in_fit(ideal.T) & _drawable(uv)
+
+
 def _poly(img, cam, ground_xy, colour, closed=True, thickness=2, steps=24):
     """Draw a ground polygon, each edge bent through the lens."""
     g = np.asarray(ground_xy, dtype=np.float64)
     a, b = (g, np.roll(g, -1, axis=0)) if closed else (g[:-1], g[1:])
-    p = _along(a, b, steps)
-    uv, z = cam.image_points(np.column_stack([p, np.zeros(len(p))]))
-    edges = zip(uv.reshape(len(a), steps, 2), ((z > 0.05) & _drawable(uv)).reshape(len(a), steps))
-    lines = [np.round(e[ok] * 4).astype(np.int32) for e, ok in edges if ok.sum() >= 2]
+    uv, ok = _placed(cam, _along(a, b, steps))
+    edges = zip(uv.reshape(len(a), steps, 2), ok.reshape(len(a), steps))
+    lines = [np.round(e[keep] * 4).astype(np.int32) for e, keep in edges if keep.sum() >= 2]
     if lines:
         cv2.polylines(img, lines, False, colour, thickness, cv2.LINE_AA, shift=2)
 
 
 def _label(img, xy, text, colour=WHITE, scale=0.55):
-    """Text on a dark box (OpenCV's font is ASCII only: write 'deg', not the degree sign)."""
+    """Text on a dark box, up and right of the point or, with no room at the right edge, down and
+    left, clear of the point (OpenCV's font is ASCII only: write 'deg', not the degree sign)."""
     x, y = int(xy[0]) + 6, int(xy[1]) - 6
     (w, h), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
-    x = min(max(x, 0), img.shape[1] - w - 4)
+    if x + w + 4 > img.shape[1]:
+        x, y = int(xy[0]) - 12 - w, int(xy[1]) + 12 + h
+    x = max(x, 0)
     cv2.rectangle(img, (x - 3, y - h - 4), (x + w + 3, y + base + 2), (20, 20, 20), -1)
     cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, colour, 1, cv2.LINE_AA)
 
@@ -234,14 +246,14 @@ def draw(frame, cam, z, grid_m=1.0):
     _poly(img, cam, camera_square(cam, {**z, "s": z["w_max"]})[0][:2], YELLOW, closed=False)
     _poly(img, cam, corners, GREEN, thickness=3)
     tilted = abs(cam.pitch_deg) > 1.0
-    for row, (x, y) in zip(corner_table(cam, z), corners):
-        uv, depth = cam.image_points([[x, y, 0.0]])
-        if depth[0] > 0 and _drawable(uv[0]) and row["px_per_m_3d"] is not None:
+    uv, ok = _placed(cam, corners)
+    for row, p, seen in zip(corner_table(cam, z), uv, ok):
+        if seen and row["px_per_m_3d"] is not None:
             text = f"{row['px_per_m_3d']:.0f} px/m" + (f" (plan {row['px_per_m_plan']:.0f})" if tilted else "")
-            cv2.circle(img, tuple(int(c) for c in uv[0]), 5, GREEN, -1, cv2.LINE_AA)
-            _label(img, uv[0], text, GREEN)
-    uv, depth = cam.image_points([[centre[0], centre[1], 0.0]])
-    if depth[0] > 0 and _drawable(uv[0]):
+            cv2.circle(img, tuple(int(c) for c in p), 5, GREEN, -1, cv2.LINE_AA)
+            _label(img, p, text, GREEN)
+    uv, ok = _placed(cam, [centre])
+    if ok[0]:
         cv2.drawMarker(img, tuple(int(c) for c in uv[0]), GREEN, cv2.MARKER_CROSS, 18, 2)
         _label(img, uv[0], f"d {z['d']:.2f} m", GREEN)
     _label(img, (2, 30), f"rho {z['rho']:g} px/m  N {z['n']}  f/p {z['fp']:.0f}  S {z['s']:.2f} m  "
