@@ -76,7 +76,7 @@ def markdown(session, r):
         lines += [f"Bounding box in the image: {ov.box_text(r['box'])}"
                   + ("." if pose["solved"] else " (camera aimed at the centre, pose not solved)."), ""]
     lines += ["| Corner | x m | y m | px/m (3D) | px/m (plan) |", "|---|---|---|---|---|"]
-    lines += [f"| {c['corner']} | {c['x']:+.2f} | {c['y']:.2f} | {ms.num(c['px_per_m_3d'], '.1f')} | {c['px_per_m_plan']:.1f} |" for c in r["corners"]]
+    lines += [f"| {c['corner']} | {c['x']:+.2f} | {c['y']:.2f} | {ms.num(c['px_per_m_3d'], '.1f')} | {ms.num(c['px_per_m_plan'], '.1f')} |" for c in r["corners"]]
     if r["overlay"]["rows"]:
         lines += ["", "| Cone | Off by px | % of width | |", "|---|---|---|---|"]
         lines += [f"| {o['corner']} | {o['off_px']:.1f} | {o['off_pct']:.2f} | {verdict(o['ok'])} |" for o in r["overlay"]["rows"]]

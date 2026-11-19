@@ -18,15 +18,19 @@ from tools.fieldtest import source as src
 from tools.fieldtest import sweep as sw
 from tools.fieldtest.calib import against_nominal
 
-PER_FOCAL = ("cones", "measurements", "sweep")      # made on the picture of one focal length
+PER_FOCAL = ("cones", "measurements", "sweep", "marked_square")      # made on the picture of one focal length
+FROM_PRESET = ("taped_square", "fit_zone", "pass")  # set in the preset, not on the page: a restart takes them up
 
 
 def new(size, source="", preset="default", phone=None, **settings):
     phone = phone or load_phone()
     p = dict(phone["presets"][preset])
     p.update({k: v for k, v in settings.items() if v is not None})
+    ov.check_rho(p["rho"])
+    if p.get("taped_square"):
+        ov.check_marks(**p["taped_square"])
     return {"source": source, "size": list(size), "preset": preset, "focal_equiv_mm": p["focal_equiv_mm"],
-            "rho": p["rho"], "taped_height_m": p.get("height_m"), "fit_zone": bool(p.get("fit_zone")), "taped_square": p.get("taped_square"), "lens": None, "cones": [],
+            "rho": p["rho"], "taped_height_m": p.get("height_m"), "fit_zone": bool(p.get("fit_zone")), "taped_square": p.get("taped_square"), "marked_square": None, "lens": None, "cones": [],
             "measurements": [], "sensors": None, "pass": phone["pass"]}
 
 
@@ -45,8 +49,11 @@ def set_focal(session, focal, folder):
     if focal == old:
         return False
     parked = session.setdefault("parked", {})
-    parked[f"{old:g}"] = {k: session.get(k) for k in PER_FOCAL}
-    session.update(parked.pop(f"{focal:g}", {"cones": [], "measurements": [], "sweep": None}), focal_equiv_mm=focal, lens=None)
+    kept = {k: session.get(k) for k in PER_FOCAL}
+    if any(kept.values()):
+        parked[f"{old:g}"] = kept
+    session.update({"cones": [], "measurements": [], "sweep": None, "marked_square": None, **parked.pop(f"{focal:g}", {})},
+                   focal_equiv_mm=focal, lens=None)
     load_saved_lens(session, folder)
     return True
 
@@ -65,13 +72,14 @@ def load(path):
 
 def resume(path, fresh):
     """The session saved at `path` if it is the same setup as `fresh` (frame size and preset), so
-    restarting the page keeps the clicks. Any other file is moved aside, never overwritten."""
+    restarting the page keeps the clicks and page settings, with the preset's own values from `fresh`.
+    Any other file is moved aside, never overwritten."""
     if not os.path.exists(path):
         return fresh
     try:
         old = load(path)
         if old["size"] == fresh["size"] and old["preset"] == fresh["preset"]:
-            return {**fresh, **old, "source": fresh["source"]}
+            return {**fresh, **old, **{k: fresh[k] for k in FROM_PRESET}, "source": fresh["source"]}
     except (ValueError, KeyError, TypeError):
         pass
     stem, ext = os.path.splitext(path)
@@ -92,13 +100,32 @@ def height_of(session):
 
 
 def zone_of(session, lens):
-    """The square: the one already taped if the preset names it, else fitted to a tilted phone, else
-    from the level-camera formulas. It stays put once the pose is solved: the markers are its truth."""
-    if session.get("taped_square"):
-        return ov.taped_zone(lens, session["rho"], **session["taped_square"])
+    """The square: the one already taped if the preset names it or the first cone pinned it, else
+    fitted to a tilted phone, else from the level-camera formulas. It stays put once the pose is
+    solved: the markers are its truth."""
+    marks = session.get("taped_square") or session.get("marked_square")
+    if marks:
+        return ov.taped_zone(lens, session["rho"], **marks)
     if session.get("fit_zone"):
         return ov.fit_zone(lens, session["rho"], height_of(session))
     return ov.zone(lens.fx, *lens.size, session["rho"])
+
+
+def add_cone(session, cone):
+    """Add a clicked cone. The first one on a fitted square pins it: its marks are on the floor now,
+    so a new height or ρ must not move it."""
+    if session.get("fit_zone") and not session.get("taped_square") and not session["cones"]:
+        z = zone_of(session, lens_of(session))
+        session["marked_square"] = {"half_m": z["s"] / 2, "far_m": z["z_max"], "centre_m": z["d"]}
+    session["cones"].append(cone)
+
+
+def undo_cone(session):
+    """Take back the last cone; with none left, nothing is marked on the floor."""
+    if session["cones"]:
+        session["cones"].pop()
+    if not session["cones"]:
+        session["marked_square"] = None
 
 
 def camera_of(session, lens):

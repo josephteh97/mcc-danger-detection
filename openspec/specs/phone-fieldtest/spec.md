@@ -72,9 +72,17 @@ For a chosen required density ρ (default 100 px/m), the tool SHALL compute W_ma
 - **WHEN** a preset has `fit_zone` and no `taped_square` (ρ 380, phone at 0.45 m aimed at the square's centre)
 - **THEN** the far corners' 3D px/m equals ρ within 0.5 px/m, the near corners reach the frame's edge, and S is larger than the level-camera formula gives
 
+#### Scenario: Fitted square pinned by the first cone
+- **WHEN** a cone has been clicked on a fitted square and the height or ρ is then changed
+- **THEN** the square stays on its marks until every cone is undone
+
 #### Scenario: Square already taped
 - **WHEN** a preset has `taped_square`
-- **THEN** the layout and the drawn square use those marks whatever the lens, ρ or the solved phone position
+- **THEN** the layout and the drawn square use those marks whatever the lens, ρ or the solved phone position, W_max is the frame's width at the far edge, and a restart takes up the preset's marks
+
+#### Scenario: Required density out of range
+- **WHEN** ρ is below 10 or above 5000 px/m
+- **THEN** the page and the command line refuse it and say why, and the session is unchanged
 
 #### Scenario: Scale invariance (P02)
 - **WHEN** the solver runs for N = 1440 at ρ = 100 and for N = 4096 at ρ = 284.4
@@ -88,8 +96,12 @@ The tool SHALL draw on the live picture the camera's ground footprint, the W_max
 - **THEN** the two near corners fall on the left and right image edges within 1 px, and the far edge lies at z_max
 
 #### Scenario: Corner density beyond the lens fit
-- **WHEN** a 1 m pole at a corner has its top outside the calibrated part of the image
+- **WHEN** a 1 m pole at a corner has either end outside the calibrated part of the image
 - **THEN** the corner's 3D px/m is the density just above the ground, not the pole through the distortion polynomial
+
+#### Scenario: Ground beyond the lens fit
+- **WHEN** a grid line, the footprint or a corner lies outside the calibrated part of the image
+- **THEN** that part isn't drawn, rather than being folded back into the picture by the distortion polynomial
 
 #### Scenario: Live overlay on the cones
 - **WHEN** cones are taped at the four corners from the layout sheet and the overlay is on

@@ -140,7 +140,9 @@ def gravity(sensors):
     for key in ("gravity", "accel"):
         data = (sensors.get(key) or {}).get("data") or []
         if data:
-            return np.asarray(data[-1][1][:3], dtype=np.float64)
+            g = np.asarray(data[-1][1][:3], dtype=np.float64)
+            if np.all(np.isfinite(g)) and np.any(g):     # all zeros has no direction
+                return g
     return None
 
 

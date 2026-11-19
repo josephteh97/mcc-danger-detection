@@ -15,7 +15,24 @@ from tools.fieldtest.lens import FieldCamera
 CORNERS = ("far left", "far right", "near right", "near left")      # the order `square` returns
 SQUARE_NUMBERS = ("w_max", "z_max", "s", "d", "near")
 ZONE_NUMBERS = ("rho", "fp", "n", *SQUARE_NUMBERS)                   # a zone's other keys aren't numbers
+RHO_RANGE = (10.0, 5000.0)                                           # px/m; the grid grows as 1/rho, and below this it stalls the page
+FIT_SCANS = (24, 6, 6, 6, 6, 6, 6)                                   # far edges tried in each narrowing pass
+NEAR_SCAN = 12                                                       # near edges tried for each far edge
 GREEN, YELLOW, CYAN, WHITE, GRID = (60, 220, 60), (0, 220, 255), (255, 220, 0), (255, 255, 255), (200, 130, 230)
+
+
+def check_rho(rho):
+    """A ρ the page can draw, or a ValueError that says why not."""
+    lo, hi = RHO_RANGE
+    if not lo <= rho <= hi:
+        raise ValueError(f"ρ must be between {lo:g} and {hi:g} px/m")
+    return rho
+
+
+def check_marks(half_m, far_m, centre_m):
+    """A square whose near edge is ahead of the phone and short of its far edge, or a ValueError."""
+    if not (half_m > 0 and 0 < 2 * centre_m - far_m < far_m):
+        raise ValueError(f"taped_square needs half_m > 0 and 0 < near edge < far_m: got half_m {half_m}, far_m {far_m}, centre_m {centre_m}")
 
 
 def zone(fp, n, h, rho):
@@ -26,18 +43,20 @@ def zone(fp, n, h, rho):
 
 
 def taped_zone(lens, rho, half_m, far_m, centre_m):
-    """The square already on the floor: its marks stay put whatever the lens or rho."""
-    return {**zone(lens.fx, *lens.size, rho), "z_max": far_m, "s": 2 * half_m, "d": centre_m, "near": 2 * centre_m - far_m, "taped": True}
+    """The square already on the floor: its marks stay put whatever the lens or rho. W_max is the
+    frame's width at its far edge (N ÷ rho only when the far edge is z_max = f/p ÷ rho)."""
+    plan = zone(lens.fx, *lens.size, rho)
+    return {**plan, "w_max": far_m * plan["n"] / plan["fp"], "z_max": far_m, "s": 2 * half_m, "d": centre_m,
+            "near": 2 * centre_m - far_m, "taped": True}
 
 
 _fitted = {}                                     # the page asks for the zone on every frame
 
 
 def fit_zone(lens, rho, height_m):
-    """The largest square a low, tilted phone really covers: the far edge where a corner's 3D px/m
-    falls to rho, the near corners on the frame's edge, for the phone at height_m aimed at the square's
-    centre. `zone` assumes a level camera, which leaves room on both counts. Falls back to it if no far
-    edge reaches rho."""
+    """The largest square a low, tilted phone really covers: in the frame and with its far corners'
+    3D px/m at rho or better, for the phone at height_m aimed at the square's centre. `zone` assumes a
+    level camera, which leaves room on both counts. Falls back to it if no square reaches rho."""
     key = (str(lens.to_dict()), rho, height_m)
     if key not in _fitted:
         _fitted[key] = _fit_zone(lens, rho, height_m)
@@ -56,25 +75,39 @@ def _fit_zone(lens, rho, height_m):
     plan = zone(lens.fx, *lens.size, rho)
 
     def between(near, far):
-        return {**plan, "z_max": far, "s": far - near, "d": (far + near) / 2, "near": near}
+        return {**plan, "w_max": far * plan["n"] / plan["fp"], "z_max": far, "s": far - near, "d": (far + near) / 2, "near": near}
 
-    def fits(near, far):
+    def in_frame(near, far):
         z = between(near, far)
         box = zone_box(aimed(lens, z, height_m), z)
         return box and box["in_frame"]
 
-    def widest(far):
-        """The square with this far edge whose near corners just stay in the frame."""
-        return between(_bisect(far, 0.0, lambda near: fits(near, far)), far)
+    def dense(near, far):
+        z = between(near, far)
+        return min((r["px_per_m_3d"] or 0.0) for r in corner_table(aimed(lens, z, height_m), z)[:2]) >= rho
 
-    def density(z):
-        rows = corner_table(aimed(lens, z, height_m), z)[:2]
-        return min((r["px_per_m_3d"] or 0.0) for r in rows)
+    def widest(far):
+        """The biggest square with this far edge: to the frame's edge if that's dense enough, else
+        scan for one that is. A bigger square can pass where a smaller one fails, as it moves the aim."""
+        edge = _bisect(far, 0.0, lambda near: in_frame(near, far), steps=14)
+        if dense(edge, far):
+            return between(edge, far)
+        nears = np.linspace(edge, far, NEAR_SCAN + 2)
+        for i in range(1, NEAR_SCAN + 1):
+            if dense(nears[i], far):
+                return between(_bisect(nears[i], nears[i - 1], lambda near: dense(near, far), steps=14), far)
+        return between(far, far)
 
     lo, hi = plan["z_max"] / 2, plan["z_max"] * 2
-    if density(widest(lo)) < rho:
+    for n in FIT_SCANS:                          # the best far edge needn't be where density first falls to rho
+        squares = [widest(far) for far in np.linspace(lo, hi, n)]
+        best = max(range(n), key=lambda i: squares[i]["s"])
+        lo, hi = squares[max(best - 1, 0)]["z_max"], squares[min(best + 1, n - 1)]["z_max"]
+    z = squares[best]
+    if z["s"] <= 0:
         return plan
-    return widest(_bisect(lo, hi, lambda far: density(widest(far)) >= rho))
+    step = plan["z_max"] * 1.5 / (FIT_SCANS[0] - 1)   # the same size further out: as far as the density allows
+    return widest(_bisect(z["z_max"], z["z_max"] + step, lambda far: widest(far)["s"] >= z["s"], steps=14))
 
 
 def square(z, origin=(0.0, 0.0), heading_deg=0.0):
@@ -122,13 +155,14 @@ def describe_layout(sheet):
 
 def corner_table(cam, z):
     """Per corner: ground position, 3D px/m (`FieldCamera.px_per_m`, None behind the camera) and
-    the plan-view px/m f/p ÷ forward distance, which only equals it for a level camera."""
+    the plan-view px/m f/p ÷ forward distance (None at or behind the camera), which only equals it
+    for a level camera."""
     corners, _ = camera_square(cam, z)
     rows = []
     for name, (x, y) in zip(CORNERS, corners):
         fwd = float(np.dot([x - cam.pos[0], y - cam.pos[1]], cam.ground_axes()[0]))
         rows.append({"corner": name, "x": float(x), "y": float(y), "px_per_m_3d": cam.px_per_m((x, y)),
-                     "px_per_m_plan": z["fp"] / fwd})
+                     "px_per_m_plan": z["fp"] / fwd if fwd > 0 else None})
     return rows
 
 
@@ -249,7 +283,7 @@ def draw(frame, cam, z, grid_m=1.0):
     uv, ok = _placed(cam, corners)
     for row, p, seen in zip(corner_table(cam, z), uv, ok):
         if seen and row["px_per_m_3d"] is not None:
-            text = f"{row['px_per_m_3d']:.0f} px/m" + (f" (plan {row['px_per_m_plan']:.0f})" if tilted else "")
+            text = f"{row['px_per_m_3d']:.0f} px/m" + (f" (plan {row['px_per_m_plan']:.0f})" if tilted and row["px_per_m_plan"] else "")
             cv2.circle(img, tuple(int(c) for c in p), 5, GREEN, -1, cv2.LINE_AA)
             _label(img, p, text, GREEN)
     uv, ok = _placed(cam, [centre])

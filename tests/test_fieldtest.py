@@ -2,6 +2,8 @@
 clicked through its API, replayed from the saved session; the sweep, report and layout."""
 import json
 import os
+import shutil
+import subprocess
 import time
 
 import cv2
@@ -398,6 +400,160 @@ def test_a_label_with_room_stays_up_and_right_of_its_point():
     ov._label(img, (50, 50), "text", ov.GREEN)
     ys, xs = np.nonzero(img.any(axis=-1))
     assert xs.min() >= 50 and ys.max() < 50
+
+
+def test_the_fit_finds_the_largest_square_at_other_heights_and_densities():
+    """Density doesn't fall steadily with the far edge, so a simple search stopped short of these."""
+    for rho, height, far, side in ((380, 1.2, 2.5, 1.8), (500, 0.8, 1.9, 1.3)):
+        z = ov.fit_zone(SHIPPED_LENS, rho, height)
+        cam = ov.aimed(SHIPPED_LENS, z, height)
+        assert z["z_max"] > far and z["s"] > side
+        assert ov.zone_box(cam, z)["in_frame"]
+        assert min(r["px_per_m_3d"] for r in ov.corner_table(cam, z)[:2]) >= rho - 1e-6
+
+
+def test_the_first_cone_pins_a_fitted_square_until_every_cone_is_undone(reports):
+    session = ss.new((1280, 720), preset="corridor")
+    session["taped_square"] = None
+    lens = ss.lens_of(session)
+    fitted = ov.layout(ss.zone_of(session, lens))["corners"]
+    ss.add_cone(session, {"name": "far left", "x": 0.0, "y": 2.0, "u": 1.0, "v": 1.0})
+    ss.add_cone(session, {"name": "far right", "x": 0.0, "y": 2.0, "u": 1.0, "v": 1.0})
+    session.update(taped_height_m=0.6, rho=500)
+    assert ov.layout(ss.zone_of(session, lens))["corners"] == fitted
+    ss.undo_cone(session)
+    assert ov.layout(ss.zone_of(session, lens))["corners"] == fitted
+    ss.undo_cone(session)
+    assert session["marked_square"] is None and ss.zone_of(session, lens) == ov.fit_zone(lens, 500, 0.6)
+    plain = ss.new((1440, 1080))                         # no fit: nothing to pin
+    ss.add_cone(plain, {"name": "", "x": 0.0, "y": 2.0, "u": 1.0, "v": 1.0})
+    assert plain["marked_square"] is None
+
+
+def test_a_restart_takes_the_preset_values_and_keeps_the_page_ones(reports):
+    old = ss.new((1280, 720), preset="corridor")
+    old.update(rho=420, cones=[{"name": "", "x": 0.0, "y": 2.0, "u": 1.0, "v": 1.0}], marked_square={"half_m": 0.5, "far_m": 2.0, "centre_m": 1.5})
+    old["pass"] = {"stale": True}
+    path = ss.save(old, str(reports / "session.json"))
+    fresh = ss.new((1280, 720), preset="corridor")
+    fresh["taped_square"] = None                         # the guide's re-tape step
+    back = ss.resume(path, fresh)
+    assert back["taped_square"] is None and back["pass"] == fresh["pass"]
+    assert back["rho"] == 420 and len(back["cones"]) == 1 and back["marked_square"]["far_m"] == 2.0
+
+
+def test_rho_out_of_range_is_refused_everywhere(reports, live, capsys):
+    client = TestClient(web.make_app(live))
+    for rho in (9, 5001, 1e308, 1e-300):
+        r = client.post("/api/settings", json={"rho": rho})
+        assert r.status_code == 400 and "between" in r.json()["detail"] and live.session["rho"] == 100
+    with pytest.raises(SystemExit):
+        main(["layout", "--rho", "5"])
+    assert "between" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="between"):
+        ss.new((1280, 720), rho=1e308)
+
+
+def test_blank_settings_are_refused_or_clear_the_height(reports, live):
+    client = TestClient(web.make_app(live))
+    for body in ({"rho": ""}, {"focal_equiv_mm": ""}):
+        assert client.post("/api/settings", json=body).status_code == 400
+    client.post("/api/settings", json={"taped_height_m": 1.5})
+    state = client.post("/api/settings", json={"taped_height_m": ""}).json()
+    assert state["session"]["taped_height_m"] is None and state["overlay_on"] is True
+    assert client.post("/api/settings", json={"overlay": False}).json()["overlay_on"] is False
+
+
+def test_a_taped_square_has_the_frames_width_at_its_far_edge():
+    lens = ln.FieldLens.pinhole((1280, 720), 800.0)
+    z = ov.taped_zone(lens, 100, 0.5, 2.0, 1.5)
+    assert z["w_max"] == pytest.approx(3.2) and ov.taped_zone(lens, 400, 0.5, 2.0, 1.5)["w_max"] == z["w_max"]
+    cam = ln.FieldCamera.posed(lens, 1.0)
+    points, _ = cam.image_points([[x, y, 0.0] for x, y in ov.layout(z)["w_max_points"]])
+    assert points[:, 0] == pytest.approx([0, 1280], abs=2.0)
+    assert ov.zone(800.0, 1280, 720, 100)["w_max"] == pytest.approx(12.8)   # the level formula is untouched
+
+
+def test_the_w_max_line_is_drawn_along_the_far_edge_beyond_the_square():
+    lens = ln.FieldLens.pinhole((1280, 720), 800.0)
+    z = ov.taped_zone(lens, 100, 0.5, 2.0, 1.5)
+    cam = ln.FieldCamera.posed(lens, 1.0, 20.0)
+    picture = ov.draw(np.zeros((720, 1280, 3), np.uint8), cam, z)
+    for x, colour in ((-1.2, ov.YELLOW), (1.2, ov.YELLOW), (0.25, ov.GREEN)):
+        u, v = cam.image_points([[x, 2.0, 0.0]])[0][0]
+        assert tuple(picture[int(round(v)), int(round(u))]) == colour
+
+
+def test_a_square_at_or_behind_the_phone_is_reported_not_a_crash():
+    with pytest.raises(ValueError, match="near edge"):
+        ov.check_marks(0.5, 2.0, 1.0)                    # near edge at 0: under the phone
+    with pytest.raises(ValueError, match="taped_square"):
+        phone = ft.load_phone()
+        phone["presets"]["corridor"]["taped_square"] = {"half_m": 0.5, "far_m": 2.0, "centre_m": 1.0}
+        ss.new((1280, 720), preset="corridor", phone=phone)
+    lens = ln.FieldLens.pinhole((1280, 720), 800.0)
+    z = ov.taped_zone(lens, 100, 0.5, 2.0, 1.2)          # near edge 0.4 m, and the phone has moved up to it
+    cam = ln.FieldCamera([0.0, 0.4, 1.0], ln.rotation(30.0), lens)
+    rows = ov.corner_table(cam, z)
+    assert rows[2]["px_per_m_plan"] is None and rows[0]["px_per_m_plan"] > 0
+    assert ov.draw(np.zeros((720, 1280, 3), np.uint8), cam, z).any()
+
+
+def test_a_pole_with_its_base_outside_the_fit_is_not_read_through_the_polynomial():
+    cam = ln.FieldCamera.posed(SHIPPED_LENS, 1.0, 5.0)
+    x, y = -2.45, 2.92
+    base, top = cam.project([[x, y, 0.0], [x, y, 1.0]])[0]
+    assert not SHIPPED_LENS.in_fit(base) and SHIPPED_LENS.in_fit(top)
+    uv, _ = cam.project([[x, y, 0.0], [x, y, ln.SHORT_M]])
+    assert cam.px_per_m((x, y)) == pytest.approx(float(np.linalg.norm(uv[1] - uv[0])) / ln.SHORT_M)
+
+
+def test_gravity_of_all_zeros_counts_as_no_data():
+    assert src.gravity({"gravity": {"data": [[0, [0.0, 0.0, 0.0]]]}}) is None
+    assert list(src.gravity({"gravity": {"data": [[0, [0.0, 0.0, 0.0]]]}, "accel": {"data": [[0, [0.0, 9.8, 0.0]]]}})) == [0.0, 9.8, 0.0]
+
+
+def test_changing_focal_with_no_clicks_keeps_nothing(reports, live):
+    state = TestClient(web.make_app(live)).post("/api/settings", json={"focal_equiv_mm": 28}).json()
+    assert not state["session"]["parked"]
+
+
+PAGE_HARNESS = """
+const boxes = {};
+const box = id => boxes[id] ??= {value: '', textContent: '', addEventListener() {}};
+globalThis.document = {getElementById: box};
+box('cname').value = 'far left';
+globalThis.fetch = () => new Promise(() => {});
+globalThis.setInterval = () => 0;
+const [a, b] = STATES;
+const seen = [];
+const look = () => seen.push({cx: box('cx').value, cy: box('cy').value, rho: box('rho').value, ov: box('ov').textContent});
+PAGE_SCRIPT
+show(a); look();                                  // first state: every box filled
+show(b); look();                                  // new layout and ρ, nothing typed: boxes follow
+box('cx').value = '9'; box('rho').value = '77';
+show(a); look();                                  // typed over: kept, the rest follows
+console.log(JSON.stringify(seen));
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node to run the page's script")
+def test_the_page_boxes_follow_the_state_unless_typed_over(reports, live):
+    """The page's own script run under node: after Calibrate or from another tab, untouched boxes
+    update, and what the user typed stays."""
+    a = TestClient(web.make_app(live)).get("/api/state").json()
+    b = json.loads(json.dumps(a))
+    b["layout"]["corners"]["far left"] = [-1.5, 3.5]
+    b["session"]["rho"] = 200
+    b["overlay_on"] = False
+    script = web.PAGE.split("<script>")[1].split("</script>")[0]
+    code = PAGE_HARNESS.replace("PAGE_SCRIPT", script).replace("STATES", json.dumps([a, b]))
+    out = subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout
+    first, second, third = json.loads(out)
+    x, y = a["layout"]["corners"]["far left"]
+    assert (float(first["cx"]), float(first["cy"]), float(first["rho"]), first["ov"]) == (x, y, 100, "Overlay on")
+    assert (float(second["cx"]), float(second["cy"]), float(second["rho"]), second["ov"]) == (-1.5, 3.5, 200, "Overlay off")
+    assert (third["cx"], third["rho"], float(third["cy"]), third["ov"]) == ("9", "77", 3.5, "Overlay on")
 
 
 def test_a_session_saved_before_the_fit_takes_it_up_on_restart(reports):

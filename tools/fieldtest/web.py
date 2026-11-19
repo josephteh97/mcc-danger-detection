@@ -19,6 +19,7 @@ from tools.fieldtest import REPORTS, describe_pitch, load_phone, report_dir
 from tools.fieldtest import calib as cb
 from tools.fieldtest import lens as ln
 from tools.fieldtest import measure as ms
+from tools.fieldtest import overlay as ov
 from tools.fieldtest import report as rp
 from tools.fieldtest import session as ss
 from tools.fieldtest import source as src
@@ -132,7 +133,7 @@ class Live:
         return {"source": self.src.shown, "size": self.src.size, "warnings": self.src.warnings,
                 "pitch": describe_pitch(self.phone, self.src.size[0], self.session["focal_equiv_mm"]),
                 "views": len(self.views),
-                "recording": self.rec_path, "folder": self.folder, "session": self.session,
+                "recording": self.rec_path, "folder": self.folder, "session": self.session, "overlay_on": self.overlay,
                 **{k: result[k] for k in ("overlay_allowed", "steps", "nominal", "pose", "zone", "layout", "corners", "overlay", "measurements")}}
 
 
@@ -165,7 +166,13 @@ def make_app(live):
     @app.post("/api/settings")
     def settings(body: dict):
         names = {"rho": "ρ", "focal_equiv_mm": "the focal length", "taped_height_m": "the taped height"}
-        values = {k: _positive(body[k], what) for k, what in names.items() if body.get(k) not in (None, "")}   # all or nothing
+        given = {k: body[k] for k in names if body.get(k) is not None}
+        values = {k: None if k == "taped_height_m" and v == "" else _positive(v, names[k]) for k, v in given.items()}   # all or nothing; a blank height: not measured
+        try:
+            if "rho" in values:
+                ov.check_rho(values["rho"])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         focal = values.pop("focal_equiv_mm", None)
         live.session.update(values)
         if focal is not None and ss.set_focal(live.session, focal, REPORTS):
@@ -176,9 +183,9 @@ def make_app(live):
 
     @app.post("/api/cone")
     def cone(body: dict):
-        live.session["cones"].append({"name": body.get("name") or "", "x": _number(body.get("x"), "the marker's x"),
-                                      "y": _number(body.get("y"), "the marker's y"),
-                                      "u": _number(body.get("u"), "the click"), "v": _number(body.get("v"), "the click")})
+        ss.add_cone(live.session, {"name": body.get("name") or "", "x": _number(body.get("x"), "the marker's x"),
+                                   "y": _number(body.get("y"), "the marker's y"),
+                                   "u": _number(body.get("u"), "the click"), "v": _number(body.get("v"), "the click")})
         return changed()
 
     @app.post("/api/measure")
@@ -194,9 +201,10 @@ def make_app(live):
 
     @app.post("/api/undo")
     def undo(body: dict):
-        items = live.session["cones" if body.get("what") == "cone" else "measurements"]
-        if items:
-            items.pop()
+        if body.get("what") == "cone":
+            ss.undo_cone(live.session)
+        elif live.session["measurements"]:
+            live.session["measurements"].pop()
         return changed()
 
     def same_size():
@@ -277,7 +285,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Field test</ti
 <style>
 body{font:14px system-ui,sans-serif;margin:0;background:#111;color:#ddd}
 main{display:flex;gap:12px;padding:12px;flex-wrap:wrap}
-#pic{max-width:min(100%,1100px);cursor:crosshair;border:1px solid #333}
+#pic{max-width:min(100%,1100px);cursor:crosshair;outline:1px solid #333}
 aside{flex:1;min-width:300px}
 fieldset{border:1px solid #333;margin:0 0 10px;padding:8px}
 input{width:5em;background:#222;color:#eee;border:1px solid #444}
@@ -313,9 +321,10 @@ const $=id=>document.getElementById(id);
 function mode(m){M=m;first=null;$('hint').textContent='mode: '+m;}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
  const j=await r.json().catch(()=>({})); if(!r.ok){alert(j.detail||r.statusText);return null;} if(j.session)show(j); return j;}
-function settings(){post('/api/settings',{rho:$('rho').value,focal_equiv_mm:$('focal').value,taped_height_m:$('height').value}).then(r=>r&&marker());}
-function marker(){const l=S&&S.layout,n=$('cname').value,p=l&&(n==='centre'?l.centre:l.corners[n]); if(p){$('cx').value=p[0];$('cy').value=p[1];}}
-function toggleOverlay(){const on=$('ov').textContent!=='Overlay on'; $('ov').textContent=on?'Overlay on':'Overlay off'; post('/api/settings',{overlay:on});}
+function settings(){post('/api/settings',{rho:$('rho').value,focal_equiv_mm:$('focal').value,taped_height_m:$('height').value});}
+function place(l){const n=$('cname').value; return l&&(n==='centre'?l.centre:l.corners[n]);}
+function marker(){const p=place(S&&S.layout); if(p){$('cx').value=p[0];$('cy').value=p[1];}}
+function toggleOverlay(){post('/api/settings',{overlay:!(S&&S.overlay_on)});}
 function record(){const on=!(S&&S.recording); post('/api/record',{on});}
 $('pic').addEventListener('click',e=>{const im=e.target, r=im.getBoundingClientRect();
  const u=(e.clientX-r.left)*im.naturalWidth/r.width, v=(e.clientY-r.top)*im.naturalHeight/r.height;
@@ -323,8 +332,13 @@ $('pic').addEventListener('click',e=>{const im=e.target, r=im.getBoundingClientR
  else if(!first){first=[u,v];$('hint').textContent='now click the top';}
  else{post('/api/measure',{bottom:first,top:[u,v],length_m:$('len').value,label:$('lab').value});first=null;$('hint').textContent='mode: measure';}});
 const num=(v,d)=>v==null?'-':v.toFixed(d);
-function show(s){const fresh=!S; S=s; const ss=s.session;
- if(fresh){$('rho').value=ss.rho;$('focal').value=ss.focal_equiv_mm;$('height').value=ss.taped_height_m??'';marker();}
+const same=(id,v)=>$(id).value===''?v==null:+$(id).value===v;   // a box still showing v: nothing typed over it
+function show(s){const was=S, o=was&&was.session, at=was&&place(was.layout), ss=s.session;
+ const follow=!was||(at&&same('cx',at[0])&&same('cy',at[1]));
+ const box=(id,old,v)=>{if(!was||same(id,old))$(id).value=v??'';};
+ box('rho',o&&o.rho,ss.rho);box('focal',o&&o.focal_equiv_mm,ss.focal_equiv_mm);box('height',o&&o.taped_height_m,ss.taped_height_m);
+ S=s; if(follow)marker();
+ $('ov').textContent=s.overlay_on?'Overlay on':'Overlay off';
  const kept=Object.keys(ss.parked||{}).map(f=>f+' mm').join(', ');
  $('warn').textContent=(s.warnings||[]).join(' · ')+(s.overlay_allowed?'':' Overlay off until the lens is calibrated at this size.')+(kept?` Clicks at ${kept} are kept for when you set it back.`:'');
  $('pitch').textContent=s.pitch; $('rec').textContent=s.recording?'Stop recording':'Record';

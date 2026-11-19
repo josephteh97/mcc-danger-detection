@@ -61,6 +61,13 @@ def _frame_at(path, index=0):
     raise ValueError(f"{path} has fewer than {index + 1} frames")
 
 
+def _rho(text):
+    try:
+        return ov.check_rho(_positive(text))
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def _preset_session(a, phone):
     """A session for `layout` and `zone` before the test: the preset, its overrides and the saved lens."""
     size = a.size or phone["presets"][a.preset]["frame_px"]
@@ -91,7 +98,7 @@ def build_parser():
     p.add_argument("--bind", default="127.0.0.1", help="address to listen on (default 127.0.0.1: this PC only)")
     p.add_argument("--port", type=int, default=8090)
     p.add_argument("--preset", default="default")
-    p.add_argument("--rho", type=_positive)
+    p.add_argument("--rho", type=_rho)
     p.add_argument("--focal", type=_positive, help="equivalent focal length, mm (default: the session's, else the preset's)")
     p = sub.add_parser("record", help="record the stream to reports/fieldtest/<date>/")
     p.add_argument("--url")
@@ -107,7 +114,7 @@ def build_parser():
     zone = sub.add_parser("zone", help="S, d, z_near, z_far and the square's bounding box in the image")
     for p in (layout, zone):
         p.add_argument("--preset", default="default")
-        p.add_argument("--rho", type=_positive)
+        p.add_argument("--rho", type=_rho)
         p.add_argument("--size", type=_size)
         p.add_argument("--focal", type=_positive)
     zone.add_argument("--session", help="use the session's calibrated lens and solved pose")
@@ -261,7 +268,7 @@ def main(argv=None):
         out = a.out or os.path.join(report_dir(), "overlay.png")
         cv2.imwrite(out, rp.annotate(_frame_at(a.file, a.frame), session, cam, z))
         for c in result["corners"]:
-            print(f"{c['corner']:10s} ({c['x']:+.2f}, {c['y']:.2f}) m: {ms.num(c['px_per_m_3d'], '.1f')} px/m 3D, {c['px_per_m_plan']:.1f} plan view")
+            print(f"{c['corner']:10s} ({c['x']:+.2f}, {c['y']:.2f}) m: {ms.num(c['px_per_m_3d'], '.1f')} px/m 3D, {ms.num(c['px_per_m_plan'], '.1f')} plan view")
         print(f"saved {out}")
         return 0
 

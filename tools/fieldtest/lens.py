@@ -196,11 +196,11 @@ class FieldCamera(PinholeCamera):
         return float(np.linalg.norm(uv[1] - uv[0])) if np.all(z > 0) else float("nan")
 
     def px_per_m(self, xy):
-        """Density at ground point xy: a 1 m pole's pixels or, if its top leaves the calibrated part of
-        the image, the density just above the ground. None if the point is behind the camera."""
+        """Density at ground point xy: a 1 m pole's pixels or, if either end leaves the calibrated part
+        of the image, the density just above the ground. None if the point is behind the camera."""
         x, y = xy
         uv, z = self.project([[x, y, 0.0], [x, y, 1.0]])
-        if np.all(z > 0) and self.lens.in_fit(uv[1]):
+        if np.all(z > 0) and self.lens.in_fit(uv[0]) and self.lens.in_fit(uv[1]):
             return self.pole_px(xy)
         uv, z = self.project([[x, y, 0.0], [x, y, SHORT_M]])
         if not np.all(z > 0):
