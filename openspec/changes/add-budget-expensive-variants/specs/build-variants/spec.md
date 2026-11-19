@@ -3,7 +3,7 @@
 ### Requirement: Cost tier on a site profile
 A site profile MAY declare `tier: budget | expensive`, and `PROFILES` SHALL be `("phase1", "v11", "budget")`. The tier names what the build costs, not what it does; two profiles with different tiers answer the same brief with different hardware.
 
-`sites/budget.yaml` SHALL declare `tier: budget` and model hardware list version 56 (18 November 2026), whose item rows total S$3,419.59. `sites/v11.yaml` SHALL declare `tier: expensive` and keep modelling hardware list version 11 unchanged. `sites/phase1.yaml` SHALL declare no tier: it is the profile the guide checks V01–V34 run on and it MUST NOT move.
+`sites/budget.yaml` SHALL declare `tier: budget` and model hardware list version 65 (19 November 2026), whose item rows total S$3,941.94. `sites/v11.yaml` SHALL declare `tier: expensive` and keep modelling hardware list version 11 unchanged. `sites/phase1.yaml` SHALL declare no tier: it is the profile the guide checks V01–V34 run on and it MUST NOT move.
 
 #### Scenario: Tiers are discoverable (U42)
 - **WHEN** the site profiles are listed

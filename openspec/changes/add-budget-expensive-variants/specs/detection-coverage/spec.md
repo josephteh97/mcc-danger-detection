@@ -3,7 +3,7 @@
 ### Requirement: Density in the processed image
 The coverage maths SHALL report density in the image the detector actually processes: native density divided by the detector's downsampling factor (`detector.input_px` against the native width; 1 when the detector runs on full-resolution tiles). The requirement SHALL be 100 px/m everywhere inside the 3 m warning ring (100 px for a 1.0 m squatting worker), for every profile.
 
-The requirement does not change with the AI box. What changes is what the box can sustain: version 11 processes full-resolution tiles on a Jetson Orin NX, version 56 processes what a Raspberry Pi 5 sustains, taken from `detector.tiles` and `detector.input_px` in `sites/budget.yaml`. Where the budget pole cannot reach 100 px/m across the ring, the check SHALL report the shortfall and the points at which it occurs rather than lower the requirement.
+The requirement does not change with the AI box. What changes is what the box can sustain: version 11 processes full-resolution tiles on a Jetson Orin NX, version 65 processes what a Raspberry Pi 5 sustains, taken from `detector.tiles` and `detector.input_px` in `sites/budget.yaml`. Where the budget pole cannot reach 100 px/m across the ring, the check SHALL report the shortfall and the points at which it occurs rather than lower the requirement.
 
 #### Scenario: Full-resolution tiles pass (U12)
 - **WHEN** the v11 site runs with `detector.tiles: true`

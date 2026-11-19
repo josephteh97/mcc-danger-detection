@@ -2,10 +2,10 @@
 
 The twin already separates "which pole" from "how the pole is simulated": `site.yaml` selects a profile, `sites/<profile>.yaml` holds the geometry and the fitted products, and `catalog/<category>/` holds one YAML per product with a `_schema.yaml` saying which fields the simulator reads. Version 11 was added that way and nothing in the app changed.
 
-Hardware list version 56 pushes on three places that profile mechanism does not yet cover:
+Hardware list version 65 pushes on three places that profile mechanism does not yet cover:
 
-1. **Shape.** Version 56 fits things the catalogue has no home for — a pole bracket, an arm mount, a 2-axis gimbal, an Ethernet aim controller, a hardware interlock, an IP66 enclosure with a pole kit and a breather, weatherproofing, cabling, breakers, signage. Roughly a third of its lines cannot be entered today.
-2. **Absence.** Version 56 fits no floodlight, no router and no monitor. `load_site()` currently refuses a profile missing any of the eight base categories.
+1. **Shape.** Version 65 fits things the catalogue has no home for — a pole bracket, an arm mount, a 2-axis gimbal, an Ethernet aim controller, a hardware interlock, an IP66 enclosure with a pole kit and a breather, weatherproofing, cabling, breakers, signage. Roughly a third of its lines cannot be entered today.
+2. **Absence.** Version 65 fits no floodlight, no router and no monitor. `load_site()` currently refuses a profile missing any of the eight base categories.
 3. **Comparison.** The point of having both builds is seeing them against each other. The what-if panel is hardcoded to `v11` and the dashboard has no navigation at all — it is one scrolling column of panels.
 
 The pole itself is also architecturally different, not merely cheaper: detection moves from a Jetson to a Pi 5, the bus moves from 24 V to 48 V, the uplink moves from an outdoor router to a USB modem on the Pi, and the laser gains a hardware interlock in series with its supply.
@@ -15,7 +15,7 @@ The pole itself is also architecturally different, not merely cheaper: detection
 **Goals**
 
 - Two named build tiers the user can switch between in one click, budget selected by default.
-- Every version 56 line item represented exactly once in the catalogue, checkable by machine.
+- Every version 65 line item represented exactly once in the catalogue, checkable by machine.
 - The existing models — coverage, PoE, power, 4G, laser reach, alarm latency — all run on the budget pole with no new maths invented where the old maths already applies.
 - Phase 1 untouched: same profile, same checks, same counts.
 
@@ -24,7 +24,7 @@ The pole itself is also architecturally different, not merely cheaper: detection
 - Not a hardware recommendation. The twin reports both tiers; choosing is the purchasing decision.
 - Not a live A/B of two running stacks. One pole runs at a time; the tab compares computed models, not live video.
 - Not a rewrite of the cost model. Catalogue totals stay a sum of `price_sgd`; freight, GST and labour stay out, as they are today.
-- Not a correction of the version 56 document. The twin reconciles against it and reports the gap.
+- Not a correction of the version 65 document. The twin reconciles against it and reports the gap.
 
 ## Decisions
 
@@ -46,7 +46,7 @@ The alternative — making the tab restart six containers — would turn a compa
 
 ### D4. Two kinds of catalogue entry
 
-Version 56 lines split cleanly in two:
+Version 65 lines split cleanly in two:
 
 - **Modelled** — the entry's fields change a simulation result. These get a category with a schema: existing `camera`, `ai_box`, `switch`, `speaker`, `laser`, `battery`, `solar`, `power_conv`, `mast`, plus new `gimbal`, `controller`, `modem`, `enclosure`.
 - **Unmodelled** — the entry carries cost and mass and nothing else: mounts, weatherproofing, cabling, breakers, signage, spares, the calibration board. These go in one new `hardware` category with a minimal schema.
@@ -73,11 +73,11 @@ Rejected: a zero-watt, zero-price `none_floodlight` placeholder product. It woul
 
 ### D7. The laser controller moves into the catalogue
 
-`sites/v11.yaml` carries a `laser_controller:` block with `watts_typ`, `watts_max`, `price_sgd` and the IP and ports. The watts and price are product facts that belong in a catalogue file; the IP and ports are site wiring and stay in the profile. Version 56 fits a different controller (Olimex ESP32-POE-ISO-IND) plus a separate hardware interlock, so both profiles end up fitting from the same `controller` category and the what-if panel edits them through the ordinary product path rather than through the three bespoke `SITE_FIELDS` entries it has today.
+`sites/v11.yaml` carries a `laser_controller:` block with `watts_typ`, `watts_max`, `price_sgd` and the IP and ports. The watts and price are product facts that belong in a catalogue file; the IP and ports are site wiring and stay in the profile. Version 65 fits a different controller (Olimex ESP32-POE-ISO-IND) plus a separate hardware interlock, so both profiles end up fitting from the same `controller` category and the what-if panel edits them through the ordinary product path rather than through the three bespoke `SITE_FIELDS` entries it has today.
 
 ### D8. 48 V bus reuses the 24 V maths
 
-`devices/power_model.py` already takes `bus_v` and an `efficiency` map from the profile. The budget chain is a different set of stages (MPPT, 48→12 V, 48→5 V, PoE+ switch) with the same structure, so this is configuration, not new code. The one genuinely new piece is the cutoff: version 11 drops load in two stages under software control, version 56 fits a Victron BatteryProtect that opens the whole bus at a voltage threshold. Modelled as a `power_conv` entry with `kind: cutoff` and a cutoff voltage, which the battery run reads instead of the two-stage percentages when it is fitted.
+`devices/power_model.py` already takes `bus_v` and an `efficiency` map from the profile. The budget chain is a different set of stages (MPPT, 48→12 V, 48→5 V, PoE+ switch) with the same structure, so this is configuration, not new code. The one genuinely new piece is the cutoff: version 11 drops load in two stages under software control, version 65 fits a Victron BatteryProtect that opens the whole bus at a voltage threshold. Modelled as a `power_conv` entry with `kind: cutoff` and a cutoff voltage, which the battery run reads instead of the two-stage percentages when it is fitted.
 
 ### D9. Four PoE ports and exactly four devices
 
@@ -89,11 +89,11 @@ Nothing in the coverage maths is camera-specific — it reads resolution, field 
 
 The Pi 5's figures come from its own specification, not from scaling the Jetson's: Broadcom BCM2712, quad-core Cortex-A76 at 2.4 GHz, VideoCore VII GPU, and critically **no NPU and no CUDA**, so there is no TensorRT path and detection runs on the CPU. A YOLO-class person detector with no accelerator fitted runs at roughly 12 fps on a Pi 5, against the Orin NX's 60. That single number is the architectural difference between the two tiers, and it propagates straight into alarm latency and into how much of the warning ring can be processed per frame.
 
-Version 56 fits no AI accelerator. If the budget pole later cannot meet the guide's 1 s dwell at 12 fps, the fix is a PCIe accelerator HAT as a new line on the hardware list, not a change to the thresholds — the thresholds are the guide's and stay verbatim.
+Version 65 fits no AI accelerator. If the budget pole later cannot meet the guide's 1 s dwell at 12 fps, the fix is a PCIe accelerator HAT as a new line on the hardware list, not a change to the thresholds — the thresholds are the guide's and stay verbatim.
 
 ### D19. The camera's distance is solved, not inherited
 
-Version 56 does not say where the tube stands. Carrying version 11's 9.5 m standoff across would mean quoting coverage figures for a pose nobody chose.
+Version 65 does not say where the tube stands. Carrying version 11's 9.5 m standoff across would mean quoting coverage figures for a pose nobody chose.
 
 Instead the standoff comes from the largest-zone solver that `openspec/specs/detection-coverage/spec.md` already defines, field-of-view method, on the C385's own figures (N = 3840 px, θ = 91.5° at the 4 mm setting) at the 100 px/m requirement:
 
@@ -135,29 +135,35 @@ Hence `trigger: [U37, U40]` rather than U40 alone, and the tracker displacement 
 
 Two caveats sit on the entry. The HAT is Raspberry Pi 5 only and occupies the PCIe lane, which is free here because the Pi boots from the microSD card in item 2. And its rated ambient range is 0–50 °C: a pole-top IP66 box in Singapore sun can exceed that, so if the accelerator is ever fitted, the enclosure's thermal design becomes a line of its own.
 
+### D22. Contingencies live outside the bill of materials, and some triggers are not ours to evaluate
+
+Version 65 of the hardware list moved its contingency lines into appendices and stated the rule in its header: an appendix line enters no subtotal and no grand total. `catalog/bom/v65.yaml` mirrors that with a `contingencies:` block beside `items:`, so the bijection check does not demand a fitted product for a line that is no longer in the table, and `total_sgd` is computed from `items:` alone.
+
+The second half is less obvious. The accelerator boards have triggers the twin can evaluate — U37 and U40 are checks this suite runs, so the panel can honestly say whether the trigger is failing right now. The VESA adapter plate's trigger is whether a bolt pattern lines up on a part nobody has unpacked yet. Nothing here models that. The temptation is to let such an entry render green because no check failed, and that is exactly wrong: an unevaluated condition shown as a pass is read as a cleared check, and the one person who most needs to go and look at the bracket is the one who will believe the panel instead. Hence `trigger: physical` and an explicit "not evaluated here" state, which is less tidy and more honest.
+
 ### D11. Check numbering
 
 `tests/smoke_budget.py` uses **U27–U48**, after v11's U11–U26. The phone field test's P01–P11 is a separate series and does not collide. Each check registers with `@check("ID", "title")` and returns `(passed, measured, criterion)` like every other quick check.
 
 ### D12. The item rows are the authority, and the gap is on the record
 
-The reconciliation check compares the catalogue total against the hardware list's **item rows**, which sum to **S$3,419.59**. That is the figure the twin uses.
+The reconciliation check compares the catalogue total against the hardware list's **item rows**, which sum to **S$3,941.94**. That is the figure the twin uses.
 
-The document's printed grand total of S$3,659.10 comes from a hand-maintained totals table whose Laser gimbal (+S$21.64) and Power (+S$217.87) subtotals have drifted from the items beneath them. `catalog/bom/v56.yaml` records both numbers and marks the table's as stale, so the check passes against a figure that is defensible line by line while the discrepancy stays visible rather than being quietly resolved in either direction.
+The document's printed grand total of S$4,184.45 comes from a hand-maintained totals table whose Laser gimbal (+S$24.64) and Power (+S$217.87) subtotals have drifted from the items beneath them. `catalog/bom/v65.yaml` records both numbers and marks the table's as stale, so the check passes against a figure that is defensible line by line while the discrepancy stays visible rather than being quietly resolved in either direction.
 
 If the hardware list is later corrected, the data file's `totals_table_sgd` is updated and the stale marker removed; the item rows and therefore the catalogue total do not move.
 
 ## Risks / Trade-offs
 
 - **The default moves.** Anyone with muscle memory for `docker compose up` gets a different pole. Mitigated by the README, the dashboard tab showing which profile is live, and `TWIN_PROFILE` still working.
-- **Unverified product figures.** Every version 56 price is real and sourced, but most of the optical, thermal and power figures are not yet checked against datasheets. All budget files start `verified: false`, and the proposal's task list includes the verification pass. The what-if panel already marks unverified figures with `*`.
+- **Unverified product figures.** Every version 65 price is real and sourced, but most of the optical, thermal and power figures are not yet checked against datasheets. All budget files start `verified: false`, and the proposal's task list includes the verification pass. The what-if panel already marks unverified figures with `*`.
 - **Category sprawl.** Five new categories is a lot at once. The `hardware` catch-all is what stops it being nine; the trade is that a `hardware` entry gets no physics until someone promotes it.
 - **Pi 5 detector figures.** `detector_fps` for a Pi 5 running the person detector is the number the whole alarm-latency result rests on, and it is the one most likely to be optimistic until measured on the actual board. Flagged in the open questions.
 - **Two poles, one stack.** The tab compares models, not behaviour. Comparing alarm behaviour still means starting each profile in turn.
 
 ## Migration Plan
 
-1. Add the categories, schemas and the 32 budget product files; the catalogue validates with nothing else changed.
+1. Add the categories, schemas and the 36 budget product files; the catalogue validates with nothing else changed.
 2. Add `sites/budget.yaml` and `app/config.budget.yaml`; add `tier:` to `sites/v11.yaml`; the loader accepts null-fitted categories.
 3. Teach the models the budget pole: 48 V chain, cutoff device, port count, modem uplink, Pi detector.
 4. Parameterise `dashboard/v11.py` on profile and add `/api/variants`; add the tab bar.
@@ -172,4 +178,4 @@ Rollback is one line: `site.yaml` back to `profile: v11`. The budget profile and
 - **Does the tracker hold at ~4 fps?** This is the live question, not latency. Tiles are mandatory to meet the density requirement and they cut the Pi's 12 fps to roughly 4 (D21), at which a walking worker moves ~40 px between frames against a ~58 px box. If IoU association breaks, the dwell timer breaks with it, and the accelerator's trigger fires.
 - **Does the horn's PoE class fit the 120 W budget alongside the Pi's PoE HAT?** Four devices on a 120 W switch should be comfortable, but the horn's draw under full alarm is the worst case and is currently a typical value.
 - **Should `phase1` get a tier?** Left out deliberately for now. If someone wants three tabs, the mechanism already allows it — it is one key in one file.
-- **Who corrects the hardware list's totals table?** Not blocking: the twin reconciles to the item rows at S$3,419.59 and records the table's S$3,659.10 as stale. Worth fixing in the document before purchase so the two agree.
+- **Who corrects the hardware list's totals table?** Not blocking: the twin reconciles to the item rows at S$3,941.94 and records the table's S$4,184.45 as stale. Worth fixing in the document before purchase so the two agree.

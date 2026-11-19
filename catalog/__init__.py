@@ -14,7 +14,7 @@ CATALOG_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CATALOG_DIR)
 BASE_CATEGORIES = ["camera", "floodlight", "speaker", "laser", "ai_box", "battery", "solar", "mast"]
 V11_CATEGORIES = ["switch", "router", "power_conv", "monitor"]       # version 11 pole network and power
-BUDGET_CATEGORIES = ["gimbal", "controller", "modem", "enclosure", "hardware"]  # hardware-list v56 (budget pole)
+BUDGET_CATEGORIES = ["gimbal", "controller", "modem", "enclosure", "hardware"]  # hardware-list v65 (budget pole)
 CATEGORIES = BASE_CATEGORIES + V11_CATEGORIES + BUDGET_CATEGORIES
 
 _TYPES = {"str": str, "bool": bool, "number": (int, float), "list": list}

@@ -3,7 +3,7 @@
 ### Requirement: Products panel
 The page SHALL let the user pick any catalogue product for each category, and show the comparison table and picture grid that `tools.compare` produces for the chosen products.
 
-The category list SHALL include the version 56 categories (`gimbal`, `controller`, `modem`, `enclosure`, `hardware`). A category the selected tab's profile does not fit SHALL be shown as not fitted rather than hidden, so the difference between the two builds is visible. Products in the unmodelled `hardware` category SHALL be listed with their cost and SHALL NOT offer a picture grid, because nothing renders them.
+The category list SHALL include the version 65 categories (`gimbal`, `controller`, `modem`, `enclosure`, `hardware`). A category the selected tab's profile does not fit SHALL be shown as not fitted rather than hidden, so the difference between the two builds is visible. Products in the unmodelled `hardware` category SHALL be listed with their cost and SHALL NOT offer a picture grid, because nothing renders them.
 
 #### Scenario: Compare cameras in the browser
 - **WHEN** the user selects two cameras and two weather presets and asks for a comparison
@@ -48,7 +48,7 @@ Where a candidate's trigger is failing, the panel SHALL say so next to it, so th
 #### Scenario: Switching a candidate in (U52)
 - **WHEN** the 26 TOPS accelerator is switched in on the budget tab
 - **THEN** density, latency and tracker results recompute with it fitted and are labelled a candidate run
-- **AND** the catalogue total stays S$3,419.59 and `sites/budget.yaml` is unchanged
+- **AND** the catalogue total stays S$3,941.94 and `sites/budget.yaml` is unchanged
 
 #### Scenario: A failing trigger points at its candidate
 - **WHEN** U37 and U40 both fail on the budget tab
@@ -67,7 +67,7 @@ The selection SHALL be kept in the URL so a reload returns to the same tab.
 
 #### Scenario: Tabs come from the profiles
 - **WHEN** `/api/variants` is requested
-- **THEN** it lists `budget` (tier budget, hardware list version 56) and `v11` (tier expensive, hardware list version 11), and names the running profile
+- **THEN** it lists `budget` (tier budget, hardware list version 65) and `v11` (tier expensive, hardware list version 11), and names the running profile
 - **AND** it does not list `phase1`, which declares no tier
 
 ### Requirement: Model panels follow the selected tab

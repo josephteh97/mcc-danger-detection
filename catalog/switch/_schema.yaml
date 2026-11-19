@@ -7,5 +7,7 @@ fields:
   ports: {type: number, doc: "PoE ports"}
   poe_budget_w: {type: number, doc: "Total PoE power the switch can supply"}
   supply_v: {type: number, doc: "DC input voltage (fed by the 24 to 54 V step-up)"}
+  input_v_min: {type: number, optional: true, doc: "Minimum DC input the switch accepts (checked against the pack's reachable low)"}
+  input_v_max: {type: number, optional: true, doc: "Maximum DC input the switch accepts (checked against the pack's reachable high)"}
   watts_typ: {type: number, doc: "Switch's own typical power, excluding the PoE it delivers"}
   watts_max: {type: number, doc: "Switch's own worst-case power"}

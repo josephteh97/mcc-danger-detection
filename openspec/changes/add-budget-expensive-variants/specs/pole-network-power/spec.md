@@ -5,9 +5,9 @@
 
 For version 11 the map SHALL be: port 1 camera (PoE+ class 4), port 2 IP horn (class 4, worst case), port 3 4G router data only (the router has its own injector), port 4 AI box over PoE++ (802.3bt class 6) through a splitter, port 5 laser controller (class 0), ports 6–8 spare.
 
-For version 56 the map SHALL be four ports on an unmanaged 120 W PoE+ switch, with no spare: port 1 camera, port 2 IP horn, port 3 AI box (the Pi's PoE HAT), port 4 laser aim controller. The 4G modem is on the Pi's USB and takes no port.
+For version 65 the map SHALL be an 8-port switch with four PoE devices fitted: port 1 camera, port 2 IP horn, port 3 AI box (the Pi's PoE HAT), port 4 laser aim controller, ports 5–8 spare. The 4G modem is on the Pi's USB and takes no port.
 
-The model SHALL also check **port count**, not only wattage: when the PoE devices outnumber the switch's ports it SHALL fail with an error naming the devices left without a port. A build with no spare port SHALL be reported as having none, so that adding a device is known to need a bigger switch.
+The model SHALL check **port count**, not only wattage: when the PoE devices outnumber the switch's ports it SHALL fail with an error naming the devices left without a port. It SHALL also report the **spare port count**, and SHALL flag a build with zero spare ports as a finding — a pole with no free port cannot take a laptop at commissioning or during fault-finding. This is why version 65 moved from a 4-port to an 8-port switch.
 
 #### Scenario: v11 budget (U17)
 - **WHEN** the v11 products are fitted to a 240 W switch
@@ -17,20 +17,26 @@ The model SHALL also check **port count**, not only wattage: when the PoE device
 - **WHEN** the switch budget is set to 90 W
 - **THEN** the check fails on reserved power and names the ports that would be refused
 
-#### Scenario: Budget pole fills every port (U29)
-- **WHEN** the budget pole's four PoE devices are fitted to the 4-port 120 W switch
-- **THEN** the check passes on wattage and reports zero spare ports
+#### Scenario: Budget pole has spare ports (U29)
+- **WHEN** the budget pole's four PoE devices are fitted to the 8-port switch
+- **THEN** the check passes on wattage and reports four spare ports
+
+#### Scenario: Zero spare ports is a finding
+- **WHEN** a profile fits exactly as many PoE devices as the switch has ports
+- **THEN** the check reports zero spare and flags it, even though every device has a port
 
 #### Scenario: One device too many (U30)
-- **WHEN** a fifth PoE device is added to the budget pole
+- **WHEN** nine PoE devices are fitted to the budget pole
 - **THEN** the check fails naming the device left without a port, before any wattage check runs
 
 ### Requirement: 24 V bus and conversion losses
 The power profile SHALL compute bus load from the fitted products' typical and worst watts and the active profile's `power.efficiency` map.
 
+Every fitted product that is powered from the bus SHALL carry its DC input window (`input_v_min`, `input_v_max`), and the model SHALL check that window against the voltage range the fitted battery can actually reach — cell count times the per-cell range, from float and absorption down to the cutoff. A product whose window is narrower than the pack's swing SHALL be reported with the charge and cutoff settings that would keep the bus inside it, because those are configuration, not extra hardware.
+
 For version 11 the bus is 24 V and the efficiencies are: 24→54 V step-up 94%, PoE cable 97%, PoE++ splitter 90%, 24→12 V 92%.
 
-For version 56 the bus is 48 V (a 51.2 V LiFePO4 pack) and the chain is: MPPT charge controller to the pack, the pack direct to the PoE+ switch, 48→12 V for the gimbal servos and 48→5 V for the laser module, with the PoE cable loss as before. Each stage's efficiency SHALL come from `sites/budget.yaml`, not be hardcoded.
+For version 65 the bus is 48 V (a 51.2 V LiFePO4 pack) and the chain is: MPPT charge controller to the pack, the pack direct to the PoE+ switch, 48→12 V for the gimbal servos and 48→5 V for the laser module, with the PoE cable loss as before. Each stage's efficiency SHALL come from `sites/budget.yaml`, not be hardcoded.
 
 #### Scenario: AI box over PoE++ (U20)
 - **WHEN** the AI box draws 25 W
@@ -39,6 +45,11 @@ For version 56 the bus is 48 V (a 51.2 V LiFePO4 pack) and the chain is: MPPT ch
 #### Scenario: Continuous load (U21)
 - **WHEN** the v11 pole runs with no alarms
 - **THEN** the average bus load is between 65 and 75 W
+
+#### Scenario: Switch input window against the pack's swing (U56)
+- **WHEN** the fitted switch's DC input window is checked against the fitted battery's cell count and per-cell voltage range
+- **THEN** any bus voltage the pack can reach outside that window is reported, naming the MPPT absorption setting and the cutoff setting that keep it inside
+- **AND** for the budget pole the 48–56 V window requires absorption at or below 3.50 V/cell and a cutoff at or above 48 V
 
 #### Scenario: Budget pole continuous load (U32)
 - **WHEN** the budget pole runs with no alarms on the 48 V bus
@@ -52,7 +63,7 @@ Version 11 SHALL keep:
 - Plan B (backup): 4 × 250 W panels, MPPT controller, 200 Ah LiFePO4
 - Plan C (backup): Plan B plus a 20 A charger fed by the socket schedule
 
-Version 56 SHALL have one plan: 4 × 100 W panels in series through a Victron SmartSolar MPPT 100/20-48 into a 51.2 V 50 Ah (2.56 kWh) pack, with no site socket. A solar-only pole has no fallback, so the run SHALL report the consecutive overcast days it survives rather than only a pass or fail.
+Version 65 SHALL have one plan: 4 × 100 W panels in series through a Victron SmartSolar MPPT 100/20-48 into a 51.2 V 50 Ah (2.56 kWh) pack, with no site socket. A solar-only pole has no fallback, so the run SHALL report the consecutive overcast days it survives rather than only a pass or fail.
 
 #### Scenario: Plan B, three heavily overcast days (U22)
 - **WHEN** Plan B runs 3 days at 30% of normal sun
@@ -65,7 +76,7 @@ Version 56 SHALL have one plan: 4 × 100 W panels in series through a Victron Sm
 ### Requirement: Battery monitor and two-stage shutdown
 Where a profile fits a battery monitor, the power profile SHALL raise alerts at the profile's `monitor_alerts_pct` and follow its staged shutdown. For version 11 that is: alerts at 50%, 30% and 10%; floodlight, strobe, servos and laser off at 30% (back on at 40%); the step-up converter, and with it the switch, AI box, camera, horn and laser controller, off at 10% (back on at 20%); and the 4G router on until the battery's own cut-off.
 
-Where a profile instead fits a `power_conv` with `kind: cutoff`, the model SHALL use that device's cutoff and reconnect voltages in place of the staged percentages, and SHALL report that load shedding is a single hardware event rather than a software sequence. Version 56 fits a Victron BatteryProtect 48V-100A and no battery monitor module; its pack's own BMS and RS485 port provide the state of charge.
+Where a profile instead fits a `power_conv` with `kind: cutoff`, the model SHALL use that device's cutoff and reconnect voltages in place of the staged percentages, and SHALL report that load shedding is a single hardware event rather than a software sequence. Version 65 fits a Victron BatteryProtect 48V-100A and no battery monitor module; its pack's own BMS and RS485 port provide the state of charge.
 
 #### Scenario: Plan A weekend switch-off (U23)
 - **WHEN** Plan A's socket is off for 60 hours
@@ -82,7 +93,7 @@ Where a profile instead fits a `power_conv` with `kind: cutoff`, the model SHALL
 ### Requirement: Laser reach on the stand
 The laser geometry SHALL come from the active profile: the pivot height and position, the hardware stops, and a check SHALL confirm the beam can reach every point of the 1.5 m alarm zone.
 
-Version 11 SHALL keep its pivot 1.1 m up directly below the camera with stops 5°–45° below horizontal. Version 56 SHALL take the gimbal pivot and the stops from `sites/budget.yaml`, where the gimbal is carried on the WiTi arm on the same tube as the camera.
+Version 11 SHALL keep its pivot 1.1 m up directly below the camera with stops 5°–45° below horizontal. Version 65 SHALL take the gimbal pivot and the stops from `sites/budget.yaml`, where the gimbal is carried on the WiTi arm on the same tube as the camera.
 
 #### Scenario: Reach covers the alarm zone (U26)
 - **WHEN** the stand is 9.5 m south of the pit centre
@@ -100,7 +111,7 @@ Version 11 SHALL keep its pivot 1.1 m up directly below the camera with stops 5�
 Where the modem carries the VPN node (`carries_vpn_node: true`), the remote-access paths SHALL be modelled as terminating on the AI box rather than on a separate router, and the model SHALL note that a hung AI box takes the remote path down with it — there is no independent route back in.
 
 #### Scenario: Budget pole 4G data (U31)
-- **WHEN** the budget pole's monthly data is estimated with the version 56 event rate and clip size
+- **WHEN** the budget pole's monthly data is estimated with the version 65 event rate and clip size
 - **THEN** the estimate is reported against the SIM plan and the uplink is attributed to the USB modem, not a router
 
 #### Scenario: Single point of remote failure (U36)

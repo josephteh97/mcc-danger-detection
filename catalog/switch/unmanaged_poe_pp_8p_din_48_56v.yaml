@@ -1,0 +1,12 @@
+name: Unmanaged PoE++ switch, 8 ports + 2 SFP, DIN rail, 48-56 V
+source: hardware list v65, 19 Nov 2026 (Linovision POE-SW508G2)
+verified: false
+price_sgd: 113.92
+bom_item: '3'
+ports: 8
+poe_budget_w: 150
+supply_v: 48
+input_v_min: 48
+input_v_max: 56
+watts_typ: 5
+watts_max: 8
