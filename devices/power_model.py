@@ -270,6 +270,86 @@ def simulate_v11(cfg, sun_factors, socket_off=(), step_h=0.1, start_weekday=4, e
             "router_hours_after_stage2": router_after_s2, "stage2": any("Stage 2:" in e for _, e in events)}
 
 
+# --------------------------------------------------------------------------- budget profile
+# One 48 V bus. Every load runs continuously: there is no software staging and no battery monitor.
+# A Victron BatteryProtect (a power_conv with kind: cutoff) opens the whole bus in one step when the
+# pack reaches its cutoff voltage, and closes it again once recharge lifts the pack clear of it.
+
+LIFEPO4_FLAT_PCT = 15.0          # above this SOC a LiFePO4 pack holds ~nominal; below it sags to empty
+LIFEPO4_NOMINAL_VPC, LIFEPO4_EMPTY_VPC = 3.3, 2.5
+
+
+def pack_cells(site):
+    return round(site["fitted"]["battery"]["voltage_v"] / 3.2)
+
+
+def cutoff_pct(site):
+    """The state of charge (percent) at which the configured cutoff voltage is reached, on a flat-top
+    LiFePO4 curve. 0 if no cutoff voltage is set."""
+    cutoff_v = site.get("power", {}).get("cutoff_v")
+    if cutoff_v is None:
+        return 0.0
+    per_cell = cutoff_v / pack_cells(site)
+    if per_cell >= LIFEPO4_NOMINAL_VPC:
+        return LIFEPO4_FLAT_PCT
+    return LIFEPO4_FLAT_PCT * max(0.0, per_cell - LIFEPO4_EMPTY_VPC) / (LIFEPO4_NOMINAL_VPC - LIFEPO4_EMPTY_VPC)
+
+
+def budget_loads(site):
+    """Typical continuous bus watts for the budget pole, by device: the PoE devices at the switch (with
+    cable loss), the switch's own draw, the gimbal on the 12 V rail and the USB modem on the AI box."""
+    from catalog import fitted
+    from devices.poe_model import port_table
+    f, eff = site["fitted"], site.get("power", {}).get("efficiency", {})
+    out = {r["device"]: r["draw_typ_w"] for r in port_table(site, include_legacy=False) if r["class"] is not None}
+    out["switch"] = f["switch"]["watts_typ"]
+    for g in fitted(site, "gimbal"):
+        out[g["id"]] = g.get("watts_idle", 0.0) / eff.get("dc12", 1.0)
+    for m in fitted(site, "modem"):
+        out[m["id"]] = m.get("watts_typ", 0.0)
+    return out
+
+
+@dataclass
+class BudgetPowerConfig(PowerConfig):
+    cutoff_pct: float = 0.0
+
+    @classmethod
+    def from_site(cls, site, **overrides):
+        f, pw = site["fitted"], site.get("power", {})
+        loads = budget_loads(site)
+        cfg = cls(base_w=round(sum(loads.values()), 2), flood_w=0.0,
+                  battery_wh=f["battery"]["voltage_v"] * f["battery"]["capacity_ah"],
+                  panel_w=f["solar"]["panel_w"] * pw.get("solar_panels", 1),
+                  daylight=tuple(pw.get("daylight_hours", (7, 19))),
+                  cutoff_pct=cutoff_pct(site))
+        cfg.loads = loads
+        return replace(cfg, **overrides)
+
+
+def simulate_budget(cfg, sun_factors):
+    """Step the budget battery hour by hour. The hardware cutoff opens the whole bus once SOC reaches
+    cutoff_pct and closes it again at cutoff_pct + 5. -> lowest %, events, trace, cutoff-event count."""
+    soc, cap = cfg.battery_wh, cfg.battery_wh
+    cut, events, trace, lowest = False, [], [], 100.0
+    for i in range(24 * len(sun_factors) + 12):
+        hour, day = (19 + i) % 24, (i + 19) // 24 - 1
+        sun = sun_factors[day] if 0 <= day < len(sun_factors) else 1.0
+        load = 0.0 if cut else cfg.base_w
+        soc = min(cap, max(0.0, soc + cfg.solar_w(hour, sun) - load))
+        pct = 100.0 * soc / cap
+        if not cut and pct <= cfg.cutoff_pct:
+            cut = True
+            events.append((i, f"hardware cutoff: BatteryProtect opens the bus at {cfg.cutoff_pct:.0f}%"))
+        elif cut and pct >= cfg.cutoff_pct + 5:
+            cut = False
+            events.append((i, "bus restored after recharge"))
+        lowest = min(lowest, pct)
+        trace.append(pct)
+    return {"lowest_pct": lowest, "events": events, "trace": trace,
+            "cutoff_events": sum(1 for _, e in events if "cutoff" in e)}
+
+
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ap = argparse.ArgumentParser(description="Lowest battery charge over a run of days")
@@ -278,8 +358,8 @@ if __name__ == "__main__":
     g.add_argument("--sun", type=float, help="sun factor (1.0 = average day)")
     g.add_argument("--weather", help="weather preset name")
     ap.add_argument("--site", help="site file path")
-    ap.add_argument("--profile", choices=("phase1", "v11"), default="phase1",
-                    help="phase1 (the guide's pole, default) or v11 (hardware list version 11)")
+    ap.add_argument("--profile", choices=("phase1", "v11", "budget"), default="phase1",
+                    help="phase1 (the guide's pole, default), v11 (hardware list v11) or budget (v65)")
     ap.add_argument("--plan", choices=PLANS, default="B", help="v11 power plan")
     ap.add_argument("--socket", choices=SOCKET_MODES, help="v11 site socket schedule (Plans A and C)")
     ap.add_argument("--socket-off", type=float, nargs=2, metavar=("FROM_H", "TO_H"), action="append",
@@ -291,6 +371,16 @@ if __name__ == "__main__":
         from world.weather import get_preset
         sun = get_preset(a.weather).sun_factor
     sun = 1.0 if sun is None else sun
+    if a.profile == "budget":
+        site = catalog.load_site(a.site, profile=None if a.site else "budget")
+        cfg = BudgetPowerConfig.from_site(site)
+        r = simulate_budget(cfg, [sun] * a.days)
+        print(f"budget pole: continuous load {cfg.base_w:.1f} W, battery {cfg.battery_wh:.0f} Wh, "
+              f"panels {cfg.panel_w:.0f} W, sun factor {sun:.2f}, {a.days} days: lowest charge "
+              f"{describe(r['lowest_pct'])} (hardware cutoff at {cfg.cutoff_pct:.0f}%)")
+        for t, text in r["events"]:
+            print(f"  +{t:3d} h  {text}")
+        sys.exit(0)
     if a.profile == "v11":
         site = catalog.load_site(a.site, profile=None if a.site else "v11")
         cfg = V11PowerConfig.from_site(site, a.plan, a.socket)

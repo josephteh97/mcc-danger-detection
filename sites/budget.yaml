@@ -22,10 +22,10 @@ camera:                            # C385 at the top of the existing tube
   look_at: [0.0, 0.0]              # bearing: straight at the pit
   render: { width: 1920, height: 1080, fps: 15 }   # 16:9 stream (coverage maths uses the native 3840 x 2160)
 
-arm:                               # laser gimbal on the tube, pivot directly below the camera
+arm:                               # laser gimbal on the WITI arm mount, just below the camera at the tube top
   xy: [0.0, -12.42]
   heading_deg: 90                  # facing north, at the pit
-  pivot_h_m: 1.1
+  pivot_h_m: 3.8                   # on the arm mount below the 4.0 m camera (ST3215 gimbal + green laser)
   tilt_stops_deg: [5, 45]          # hardware stops below horizontal
 
 reference_worker:
@@ -104,7 +104,9 @@ power:
   bus_v: 48
   efficiency: { mppt: 0.98, dc12: 0.90, dc5: 0.90, cable: 0.98 }
   daylight_hours: [7, 19]
+  solar_panels: 4                  # 4 x 100 W array (the solar file's price is one panel)
   cutoff_v: 48                     # Victron BatteryProtect opens the bus here (power_conv kind: cutoff)
+  absorption_v: 56                 # MPPT absorption, 3.50 V/cell x 16: keeps the bus inside the switch's 48-56 V window
 
 power_plans:
   solar:

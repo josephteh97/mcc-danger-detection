@@ -43,12 +43,12 @@ Every file carries `source` (hardware list version 65, 18 Nov 2026, plus the lis
 
 ## 5. Power, PoE and network on the budget pole
 
-- [ ] 5.1 `devices/poe_model.py`: fail with a named error when PoE devices outnumber switch ports, listing the devices left without one; report the spare-port count and flag zero spare as a finding
-- [ ] 5.1a Check every bus-powered product's `input_v_min`/`input_v_max` against the fitted pack's reachable range (cells × per-cell range) and report the absorption and cutoff settings that keep the bus inside it — for the budget pole, absorption ≤ 3.50 V/cell and cutoff ≥ 48 V
-- [ ] 5.2 `devices/power_model.py`: 48 V chain from `sites/budget.yaml`; read a `power_conv` with `kind: cutoff` and use its cutoff voltage instead of the two-stage percentages when one is fitted
-- [ ] 5.3 `tools/network.py`: take the uplink from the fitted `modem` when no `router` is fitted
-- [ ] 5.4 Laser reach check against the budget gimbal pose; Class 2 fitting rule already refuses anything above 1 mW
-- [ ] 5.5 Verify: U29–U36 and U56 pass; `python3 devices/power_model.py --days 3 --weather overcast --profile budget` runs
+- [x] 5.1 `devices/poe_model.py`: fail with a named error when PoE devices outnumber switch ports, listing the devices left without one; report the spare-port count and flag zero spare as a finding
+- [x] 5.1a Check every bus-powered product's `input_v_min`/`input_v_max` against the fitted pack's reachable range (cells × per-cell range) and report the absorption and cutoff settings that keep the bus inside it — for the budget pole, absorption ≤ 3.50 V/cell and cutoff ≥ 48 V
+- [x] 5.2 `devices/power_model.py`: 48 V chain from `sites/budget.yaml`; read a `power_conv` with `kind: cutoff` and use its cutoff voltage instead of the two-stage percentages when one is fitted
+- [x] 5.3 `tools/network.py`: take the uplink from the fitted `modem` when no `router` is fitted
+- [x] 5.4 Laser reach check against the budget gimbal pose; Class 2 fitting rule already refuses anything above 1 mW
+- [x] 5.5 Verify: U29–U36 and U56 pass; `python3 devices/power_model.py --days 3 --weather overcast --profile budget` runs
 
 ## 6. Coverage and detection on the budget pole
 

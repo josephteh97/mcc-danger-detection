@@ -92,6 +92,46 @@ def check(site, budget_w=None, include_legacy=None, extra=None):
             "refused": [f"port {r['port']} ({r['device']}, class {r['class']}, {r['reserved_w']:g} W)" for r in refused]}
 
 
+CELL_NOMINAL_V = 3.2        # LiFePO4 nominal cell voltage
+
+
+def port_count(site, extra=None):
+    """Fitted PoE devices against the switch's physical port count. -> the spare-port count, and any
+    device mapped to a port the switch does not have. Zero spare is a finding; an overflow fails."""
+    ports = int(site["fitted"]["switch"]["ports"])
+    used = sorted([e["port"] for e in site["poe_ports"] if e.get("device") is not None]
+                  + [x["port"] for x in extra or []])
+    over = [p for p in used if p > ports]
+    spare = ports - len(used)
+    findings = (["no spare ports"] if spare == 0 and not over else [])
+    if over:
+        findings.append(f"{len(over)} device(s) on ports the {ports}-port switch does not have: {over}")
+    return {"switch_ports": ports, "devices": len(used), "device_ports": used,
+            "spare": spare, "over": over, "ok": not over, "findings": findings}
+
+
+def input_window(site):
+    """The fitted pack's configured operating range (cutoff to absorption) against the input window of
+    every bus-powered product that states one. -> the per-cell settings and whether the bus stays
+    inside each product's window. The budget pole wants cutoff >= 48 V and absorption <= 3.50 V/cell."""
+    from catalog import fitted_products
+    bat = site["fitted"]["battery"]
+    cells = round(bat["voltage_v"] / CELL_NOMINAL_V)
+    pw = site.get("power", {})
+    cutoff_v, absorption_v = pw.get("cutoff_v"), pw.get("absorption_v")
+    windows = []
+    for p in fitted_products(site):
+        lo, hi = p.get("input_v_min"), p.get("input_v_max")
+        if lo is None or hi is None:
+            continue
+        inside = (cutoff_v is None or cutoff_v >= lo) and (absorption_v is None or absorption_v <= hi)
+        windows.append({"product": p["id"], "input_v_min": lo, "input_v_max": hi, "inside": inside})
+    return {"cells": cells, "cutoff_v": cutoff_v, "absorption_v": absorption_v,
+            "cutoff_v_per_cell": None if cutoff_v is None else round(cutoff_v / cells, 3),
+            "absorption_v_per_cell": None if absorption_v is None else round(absorption_v / cells, 3),
+            "windows": windows, "ok": all(w["inside"] for w in windows)}
+
+
 def describe(result):
     lines = [f"port {r['port']}: {r['device']:38s} "
              + ("data only" if r["data_only"] else "spare" if r["class"] is None else

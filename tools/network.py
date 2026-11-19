@@ -57,6 +57,22 @@ def monthly_4g_gb(events_per_day=50, clip_mb=1.3, view_hours_per_day=1.0, view_m
             "view_gb": view_mb * days / 1000, "messages_gb": messages_mb * days / 1000}
 
 
+def uplink(site):
+    """Where the 4G uplink lives: a fitted outdoor router (its own injector), else the fitted USB
+    modem on the AI box. A modem that also carries the VPN node makes the AI box a single point of
+    failure — detection, uplink and remote access all fall with it."""
+    from catalog import fitted
+    router, modem = fitted(site, "router"), fitted(site, "modem")
+    if router:
+        return {"device": "router", "id": router[0]["id"], "carries_vpn_node": False, "spof": False, "why": ""}
+    if modem:
+        m = modem[0]
+        vpn = bool(m.get("carries_vpn_node"))
+        return {"device": "modem", "id": m["id"], "carries_vpn_node": vpn, "spof": vpn,
+                "why": "the 4G uplink and the VPN node run on the AI box that also does detection" if vpn else ""}
+    return {"device": None, "id": None, "carries_vpn_node": False, "spof": False, "why": "no uplink fitted"}
+
+
 def report(site, **kw):
     net = dict(site.get("network") or {})
     net.update({k: v for k, v in kw.items() if v is not None})
@@ -64,7 +80,7 @@ def report(site, **kw):
     plan = net.get("sim_plan_gb", 30)
     loads = link_loads(net.get("port_mbps", 1000))
     return {"data": data, "plan_gb": plan, "within_plan": data["total_gb"] <= plan, "links": loads,
-            "max_link_pct": max(cap for _, cap in loads.values())}
+            "max_link_pct": max(cap for _, cap in loads.values()), "uplink": uplink(site)}
 
 
 def main(argv=None):
