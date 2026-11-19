@@ -95,6 +95,19 @@ def check(site, budget_w=None, include_legacy=None, extra=None):
 CELL_NOMINAL_V = 3.2        # LiFePO4 nominal cell voltage
 
 
+def pack_cells(site):
+    """The fitted battery's series cell count, from its nominal voltage."""
+    return round(site["fitted"]["battery"]["voltage_v"] / CELL_NOMINAL_V)
+
+
+def cutoff_voltage(site):
+    """The bus cutoff voltage: the fitted power_conv with kind 'cutoff' (its output_v) is the source of
+    truth; `power.cutoff_v` is an optional override. None if neither is present."""
+    from catalog import fitted
+    dev = next((p for p in fitted(site, "power_conv") if p.get("kind") == "cutoff"), None)
+    return site.get("power", {}).get("cutoff_v", dev["output_v"] if dev else None)
+
+
 def port_count(site, extra=None):
     """Fitted PoE devices against the switch's physical port count. -> the spare-port count, and any
     device mapped to a port the switch does not have. Zero spare is a finding; an overflow fails."""
@@ -115,10 +128,8 @@ def input_window(site):
     every bus-powered product that states one. -> the per-cell settings and whether the bus stays
     inside each product's window. The budget pole wants cutoff >= 48 V and absorption <= 3.50 V/cell."""
     from catalog import fitted_products
-    bat = site["fitted"]["battery"]
-    cells = round(bat["voltage_v"] / CELL_NOMINAL_V)
-    pw = site.get("power", {})
-    cutoff_v, absorption_v = pw.get("cutoff_v"), pw.get("absorption_v")
+    cells = pack_cells(site)
+    cutoff_v, absorption_v = cutoff_voltage(site), site.get("power", {}).get("absorption_v")
     windows = []
     for p in fitted_products(site):
         lo, hi = p.get("input_v_min"), p.get("input_v_max")

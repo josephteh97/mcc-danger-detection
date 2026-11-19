@@ -279,14 +279,11 @@ LIFEPO4_FLAT_PCT = 15.0          # above this SOC a LiFePO4 pack holds ~nominal;
 LIFEPO4_NOMINAL_VPC, LIFEPO4_EMPTY_VPC = 3.3, 2.5
 
 
-def pack_cells(site):
-    return round(site["fitted"]["battery"]["voltage_v"] / 3.2)
-
-
 def cutoff_pct(site):
-    """The state of charge (percent) at which the configured cutoff voltage is reached, on a flat-top
+    """The state of charge (percent) at which the fitted cutoff device opens the bus, on a flat-top
     LiFePO4 curve. 0 if no cutoff voltage is set."""
-    cutoff_v = site.get("power", {}).get("cutoff_v")
+    from devices.poe_model import cutoff_voltage, pack_cells
+    cutoff_v = cutoff_voltage(site)
     if cutoff_v is None:
         return 0.0
     per_cell = cutoff_v / pack_cells(site)
@@ -323,7 +320,6 @@ class BudgetPowerConfig(PowerConfig):
                   panel_w=f["solar"]["panel_w"] * pw.get("solar_panels", 1),
                   daylight=tuple(pw.get("daylight_hours", (7, 19))),
                   cutoff_pct=cutoff_pct(site))
-        cfg.loads = loads
         return replace(cfg, **overrides)
 
 
