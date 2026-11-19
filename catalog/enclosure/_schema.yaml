@@ -1,0 +1,10 @@
+category: enclosure
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  kind: {type: str, doc: "box, pole_kit or breather"}
+  ip_rating: {type: str, optional: true, doc: "IP rating, e.g. IP66 (box and breather)"}
+  volume_l: {type: number, optional: true, doc: "Internal volume in litres (box only)"}
+  vented: {type: bool, optional: true, doc: "true if it vents the box (breather only)"}

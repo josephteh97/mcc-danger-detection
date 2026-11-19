@@ -1,0 +1,9 @@
+name: Victron SmartSolar MPPT 100/20, 48 V
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 151.0
+bom_item: '18'
+kind: mppt
+output_v: 51.2
+rated_w: 960
+efficiency: 0.98

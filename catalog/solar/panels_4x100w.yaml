@@ -1,0 +1,7 @@
+name: 100 W solar panel (fitted 4x on the budget pole)
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 129.79
+bom_item: '16'
+panel_w: 100
+panels: 1

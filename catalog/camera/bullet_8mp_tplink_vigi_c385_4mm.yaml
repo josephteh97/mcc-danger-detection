@@ -1,0 +1,15 @@
+name: TP-Link VIGI C385 8 MP bullet, 4 mm
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 160.0
+bom_item: '1'
+power_w: 7
+watts_max: 11.5
+poe_class: 0
+resolution_px: [3840, 2160]
+hfov_deg: 91.5
+form: bullet
+sun_hood: true
+true_wdr_db: 120
+ir_range_m: 30
+dori_fp_px: 2675

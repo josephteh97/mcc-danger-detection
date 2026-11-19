@@ -1,0 +1,10 @@
+name: Olimex ESP32-POE-ISO industrial aim controller
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 46.5
+bom_item: '12'
+kind: aim
+interface: ethernet
+watts_typ: 3
+watts_max: 6
+poe_class: 0

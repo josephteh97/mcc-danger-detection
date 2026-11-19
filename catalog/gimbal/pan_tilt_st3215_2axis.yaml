@@ -1,0 +1,13 @@
+name: ST3215 2-axis pan/tilt gimbal
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 109.99
+bom_item: '9'
+axes: 2
+travel_pan_deg: 360
+travel_tilt_deg: 180
+hold_torque_kgcm: 30
+payload_g: 2000
+supply_v: 12
+watts_idle: 1
+watts_moving: 6

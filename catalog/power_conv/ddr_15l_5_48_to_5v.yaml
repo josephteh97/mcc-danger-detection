@@ -1,0 +1,9 @@
+name: DIN-rail DC-DC converter, 48 V to 5 V, 15 W
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 42.34
+bom_item: '13'
+kind: stepdown
+output_v: 5
+rated_w: 15
+efficiency: 0.9

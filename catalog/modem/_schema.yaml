@@ -1,0 +1,9 @@
+category: modem
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  interface: {type: str, doc: "usb or ethernet"}
+  bands: {type: list, doc: "Supported LTE bands"}
+  carries_vpn_node: {type: bool, doc: "true if the Tailscale/VPN node runs on the host the modem attaches to"}

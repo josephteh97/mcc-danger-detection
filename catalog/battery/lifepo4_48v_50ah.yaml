@@ -1,0 +1,7 @@
+name: LiFePO4 48 V 50 Ah (2.56 kWh)
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 579.0
+bom_item: '17'
+voltage_v: 51.2
+capacity_ah: 50

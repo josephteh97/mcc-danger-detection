@@ -1,0 +1,9 @@
+name: DIN-rail DC-DC converter, 48 V to 12 V, 60 W
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 50.57
+bom_item: '19'
+kind: stepdown
+output_v: 12
+rated_w: 60
+efficiency: 0.9

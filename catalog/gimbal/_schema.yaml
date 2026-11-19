@@ -1,0 +1,14 @@
+category: gimbal
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  axes: {type: number, doc: "Number of controlled axes (2 = pan/tilt)"}
+  travel_pan_deg: {type: number, doc: "Pan travel in degrees"}
+  travel_tilt_deg: {type: number, doc: "Tilt travel in degrees"}
+  hold_torque_kgcm: {type: number, doc: "Holding torque per axis, kg-cm"}
+  payload_g: {type: number, doc: "Rated payload in grams"}
+  supply_v: {type: number, doc: "DC supply voltage"}
+  watts_idle: {type: number, doc: "Power holding position"}
+  watts_moving: {type: number, doc: "Power while slewing"}

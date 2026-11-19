@@ -1,0 +1,8 @@
+name: IP66 breather vent with desiccant
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 35.0
+bom_item: 11c
+kind: breather
+ip_rating: IP66
+vented: true

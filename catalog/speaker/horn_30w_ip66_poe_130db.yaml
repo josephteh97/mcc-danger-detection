@@ -1,0 +1,10 @@
+name: 30 W IP66 PoE horn speaker, 130 dB
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 154.0
+bom_item: '4'
+power_w: 1
+spl_1m_db: 130
+interface: ip
+watts_max: 30
+poe_class: 4

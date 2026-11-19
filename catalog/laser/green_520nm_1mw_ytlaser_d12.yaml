@@ -1,0 +1,7 @@
+name: YT-Laser D12 green 520 nm 1 mW module
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 8.17
+bom_item: '10'
+power_mw: 1
+wavelength_nm: 520

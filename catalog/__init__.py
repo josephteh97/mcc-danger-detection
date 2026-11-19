@@ -14,7 +14,8 @@ CATALOG_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CATALOG_DIR)
 BASE_CATEGORIES = ["camera", "floodlight", "speaker", "laser", "ai_box", "battery", "solar", "mast"]
 V11_CATEGORIES = ["switch", "router", "power_conv", "monitor"]       # version 11 pole network and power
-CATEGORIES = BASE_CATEGORIES + V11_CATEGORIES
+BUDGET_CATEGORIES = ["gimbal", "controller", "modem", "enclosure", "hardware"]  # hardware-list v56 (budget pole)
+CATEGORIES = BASE_CATEGORIES + V11_CATEGORIES + BUDGET_CATEGORIES
 
 _TYPES = {"str": str, "bool": bool, "number": (int, float), "list": list}
 
@@ -38,6 +39,7 @@ COMMON_OPTIONAL = {
     "watts_typ": {"type": "number", "doc": "typical power drawn"},
     "watts_max": {"type": "number", "doc": "worst-case power drawn"},
     "poe_class": {"type": "number", "doc": "IEEE 802.3 PoE class (0-8) for products powered over PoE"},
+    "bom_item": {"type": "str", "doc": "hardware-list line number this file models one-to-one, e.g. \"1\", \"11c\""},
 }
 
 
@@ -103,7 +105,7 @@ def check_laser_fit(product):
 # --------------------------------------------------------------------------- site
 
 SITES_DIR = os.path.join(ROOT_DIR, "sites")
-PROFILES = ("phase1", "v11")
+PROFILES = ("phase1", "v11", "budget")
 
 
 def active_profile(path=None):
@@ -157,8 +159,9 @@ def load_site(path=None, overrides=None, profile=None, product_overrides=None):
             loaded[category, name] = load_product(category, name, edits.get(name))
         return loaded[category, name]
     site["fitted"] = {c: [product(c, n) for n in names] if isinstance(names, list) else product(c, names)
-                      for c, names in fitted_names.items()}
-    check_laser_fit(site["fitted"]["laser"])
+                      for c, names in fitted_names.items() if names is not None}
+    if "laser" in site["fitted"]:
+        check_laser_fit(site["fitted"]["laser"])
     return site
 
 

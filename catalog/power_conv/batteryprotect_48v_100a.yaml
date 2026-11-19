@@ -1,0 +1,10 @@
+name: Victron BatteryProtect 48 V 100 A low-voltage cutoff
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 170.0
+bom_item: '20'
+kind: cutoff
+output_v: 48
+rated_w: 4800
+efficiency: 0.99
+watts_typ: 1

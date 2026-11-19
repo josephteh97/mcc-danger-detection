@@ -1,0 +1,9 @@
+category: controller
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  kind: {type: str, doc: "aim (drives the gimbal) or interlock (breaks the laser supply)"}
+  interface: {type: str, doc: "ethernet, usb or hardwired"}
+  breaks_laser_supply: {type: bool, optional: true, doc: "true if it opens the laser supply in hardware (an interlock)"}

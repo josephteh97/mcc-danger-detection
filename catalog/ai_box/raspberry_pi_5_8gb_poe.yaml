@@ -1,0 +1,9 @@
+name: Raspberry Pi 5 8 GB with PoE HAT (no NPU, no CUDA)
+source: hardware list v56, 18 Nov 2026
+verified: false
+price_sgd: 396.82
+bom_item: '2'
+power_w: 10
+detector_fps: 12
+ram_gb: 8
+cpus: 4

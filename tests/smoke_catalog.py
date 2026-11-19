@@ -37,11 +37,13 @@ def u09():
     unpowered = {"laser", "battery", "solar", "mast", "power_conv"}
     no_watts = [p["id"] for c in v11["fitted"] if c not in unpowered and c != "floodlight"
                 for p in catalog.fitted(v11, c) if "watts_typ" not in p or "watts_max" not in p]
-    ok = len(phase1["fitted"]) == 8 and set(v11["fitted"]) == set(catalog.CATEGORIES) and not no_watts
+    ok = (len(phase1["fitted"]) == 8
+          and set(catalog.BASE_CATEGORIES + catalog.V11_CATEGORIES) <= set(v11["fitted"])
+          and not no_watts)
     return ok, (f"{n} product files in {len(found)} categories; phase1 fits {len(phase1['fitted'])} categories, "
                 f"v11 fits {len(catalog.fitted_products(v11))} products in {len(v11['fitted'])}"
                 + (f"; no watts_typ/watts_max: {', '.join(no_watts)}" if no_watts else "")), \
-        "every file passes its schema, phase1 fits one product per base category, v11 fits every category with watts on its powered products"
+        "every file passes its schema, phase1 fits one product per base category, v11 fits every base and network/power category with watts on its powered products"
 
 
 @check("V23", "Product file checks")
