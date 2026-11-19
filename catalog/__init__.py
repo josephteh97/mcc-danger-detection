@@ -238,29 +238,28 @@ def reconcile(site, bom):
         prod = mapping.get(num)
         g = groups.setdefault(row["group"], {"listed_sgd": 0.0, "fitted_sgd": 0.0})
         g["listed_sgd"] += row["price_sgd"]
+        line = {"bom": num, "group": row["group"], "product": row["product"], "listed_sgd": row["price_sgd"],
+                "fitted": None, "fitted_sgd": None, "diff_sgd": None}
         if prod is not None:
             g["fitted_sgd"] += prod["price_sgd"]
-        lines.append({"bom": num, "group": row["group"], "product": row["product"],
-                      "fitted": None if prod is None else prod["id"], "listed_sgd": row["price_sgd"],
-                      "fitted_sgd": None if prod is None else prod["price_sgd"],
-                      "diff_sgd": None if prod is None else round(prod["price_sgd"] - row["price_sgd"], 2)})
+            line.update(fitted=prod["id"], fitted_sgd=prod["price_sgd"],
+                        diff_sgd=round(prod["price_sgd"] - row["price_sgd"], 2))
+        lines.append(line)
     for g in groups.values():
         g["listed_sgd"], g["fitted_sgd"] = round(g["listed_sgd"], 2), round(g["fitted_sgd"], 2)
         g["diff_sgd"] = round(g["fitted_sgd"] - g["listed_sgd"], 2)
     unmodelled = [num for num in items if num not in mapping]
     unknown = sorted(p["id"] for item, p in mapping.items() if item not in items)
     fitted_total = round(sum(p["price_sgd"] for p in mapping.values()), 2)
+    total_diff = round(fitted_total - bom["total_sgd"], 2)
     table = bom.get("totals_table_sgd")
     return {
         "lines": lines, "groups": groups, "unmodelled": unmodelled, "unknown": unknown,
-        "fitted_total_sgd": fitted_total, "listed_total_sgd": bom["total_sgd"],
-        "total_diff_sgd": round(fitted_total - bom["total_sgd"], 2),
+        "fitted_total_sgd": fitted_total, "listed_total_sgd": bom["total_sgd"], "total_diff_sgd": total_diff,
         "table_total_sgd": table, "table_stale": bom.get("totals_table_stale", False),
         "table_gap_sgd": None if table is None else round(table - bom["total_sgd"], 2),
         "stale_by": bom.get("stale_by", {}),
-        "ok": not unmodelled and not unknown
-              and all(ln["diff_sgd"] == 0 for ln in lines)
-              and round(fitted_total - bom["total_sgd"], 2) == 0,
+        "ok": not unmodelled and not unknown and all(ln["diff_sgd"] == 0 for ln in lines) and total_diff == 0,
     }
 
 
