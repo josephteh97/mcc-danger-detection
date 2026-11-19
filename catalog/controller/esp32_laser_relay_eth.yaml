@@ -1,0 +1,9 @@
+name: ESP32 laser and relay controller, Ethernet
+source: hardware list v11, 30 Oct 2026 (typical value)
+verified: false
+price_sgd: 120
+kind: aim
+interface: ethernet
+watts_typ: 3.0
+watts_max: 6.0
+poe_class: 0

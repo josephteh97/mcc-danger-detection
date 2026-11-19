@@ -41,8 +41,6 @@ SITE_FIELDS = {
     "view_mbps": ("Live view bitrate", "Mbit/s", ("network", "view_mbps"), None, 0),
     "sim_plan_gb": ("SIM data plan", "GB", ("network", "sim_plan_gb"), None, 0),
     "cable_eff": ("PoE cable efficiency", "", ("power", "efficiency", "cable"), None, POSITIVE),
-    "laser_controller_w": ("Laser controller typical power", "W", ("laser_controller", "watts_typ"), None, 0),
-    "laser_controller_sgd": ("Laser controller price", "S$", ("laser_controller", "price_sgd"), None, 0),
 }
 # Product fields that divide (efficiencies, capacities, lens figures) must stay above zero
 POSITIVE_PRODUCT_FIELDS = {"efficiency", "capacity_ah", "voltage_v", "hfov_deg", "dori_fp_px"}

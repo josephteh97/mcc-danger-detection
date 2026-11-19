@@ -133,7 +133,7 @@ def plan_parts(plan_products):
 
 def plan_totals(site, include_legacy=False):
     """Cost of the v11 pole per power plan: the common parts, plus each plan's battery, panels and
-    own parts, the laser controller and other hardware. Legacy products are left out unless
+    own parts, and other hardware. Legacy products are left out unless
     `include_legacy` (identification switched back on). -> {plan: {"total_sgd", "items"}}"""
     from catalog import fitted_products, plan_products
     plans = site.get("power_plans") or {}
@@ -141,9 +141,6 @@ def plan_totals(site, include_legacy=False):
     plan_ids |= {site["fitted"]["battery"]["id"], site["fitted"]["solar"]["id"]}
     common = [(p["id"], p["price_sgd"]) for p in fitted_products(site)
               if p["id"] not in plan_ids and (include_legacy or not p.get("legacy"))]
-    lc = site.get("laser_controller") or {}
-    if lc.get("price_sgd"):
-        common.append(("laser_controller", lc["price_sgd"]))
     other = site.get("power", {}).get("other_hardware_sgd", 0)
     out = {}
     for name, plan in plans.items():

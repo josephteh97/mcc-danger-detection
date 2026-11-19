@@ -3,6 +3,8 @@
 # the laser controller and its relays on Ethernet, one 24 V bus with three power plans.
 # Ground coordinates are metres, origin at the pit centre, x east, y north, z up.
 
+tier: expensive                    # hardware list version 11 is the expensive build
+
 site:
   name: MCC pit 07
   pole_id: "07"
@@ -50,6 +52,7 @@ products:                          # one name per category, or a list where seve
   mast: wheeled_cabinet_stand_4m
   switch: managed_poe_8p_240w_48v
   router: outdoor_4g_router_wifi
+  controller: esp32_laser_relay_eth     # watts and price now live in the catalogue, not the profile
   power_conv: [stepup_24_54v, poe_bt_splitter_12v, poe_injector_router, psu_24v_240w]
   monitor: [battery_monitor_rs485, relay_24v_2ch]
 
@@ -69,13 +72,10 @@ poe_ports:                         # managed PoE switch port map (devices/poe_mo
   - { port: 7 }
   - { port: 8 }
 
-laser_controller:                  # ESP32 laser and relay controller on poe_lan (typical values)
+laser_controller:                  # wiring only; watts and price are in controller/esp32_laser_relay_eth
   ip: 192.168.10.24
   arm_port: 7001
   relay_port: 7002
-  watts_typ: 3.0
-  watts_max: 6.0
-  price_sgd: 120
 
 network:                           # 4G data inputs (tools/network.py)
   sim_plan_gb: 30

@@ -34,7 +34,11 @@ def port_device(site, entry):
     if dev is None:
         return None, None
     if dev == "laser_controller":
-        return dev, site["laser_controller"]
+        from catalog import fitted
+        aim = next((c for c in fitted(site, "controller") if c.get("interface") in ("ethernet", "usb")), None)
+        if aim is None:
+            raise ValueError("port map names laser_controller but no networked controller is fitted")
+        return dev, aim
     prod = site["fitted"][dev]
     return prod["id"], prod
 
