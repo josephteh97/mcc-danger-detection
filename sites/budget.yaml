@@ -52,6 +52,8 @@ products:                          # one name per category, or a list where seve
   modem: usb_4g_modem_lte_sg
   enclosure: [fibox_arca_403015, pole_kit_fibox_pmk_arca_30, breather_vent_ip66_desiccant]
   power_conv: [mppt_victron_100_20_48, ddr_60l_12_48_to_12v, ddr_15l_5_48_to_5v, batteryprotect_48v_100a]
+  lightning: air_terminal_1m_copper
+  spd: poe_eth_spd_assmann_dn95421
   hardware:
     - pole_bracket_tplink_vmb_350
     - arm_mount_witi_dual_40cm
@@ -67,6 +69,7 @@ products:                          # one name per category, or a list where seve
     - signage_cctv_laser
     - spares_kit
     - site_cabling_set
+    - earthing_kit_pole
 
 detector:                          # what a Raspberry Pi 5 sustains (task 6b)
   native_px: [3840, 2160]

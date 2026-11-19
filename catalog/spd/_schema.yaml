@@ -1,0 +1,11 @@
+category: spd
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  kind: {type: str, doc: "ethernet_poe or dc"}
+  lines: {type: number, doc: "Number of conductors it protects"}
+  poe_class_max: {type: number, doc: "Highest PoE class the data SPD passes (0 for a dc SPD)"}
+  max_surge_ka: {type: number, doc: "Rated surge current, kA"}
+  din_rail: {type: bool, doc: "true if it mounts on DIN rail"}

@@ -1,0 +1,8 @@
+name: Air terminal, 1 m copper, with base
+source: hardware list v65, 19 Nov 2026 (price an estimate, pending the listing)
+verified: false
+price_sgd: 150.00
+bom_item: '27'
+rod_length_m: 1.0
+protection_angle_deg: 45
+material: copper

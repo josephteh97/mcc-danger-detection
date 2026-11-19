@@ -1,0 +1,9 @@
+category: lightning
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  rod_length_m: {type: number, doc: "Air-terminal length above its mount, metres"}
+  protection_angle_deg: {type: number, doc: "Protection cone half-angle from the tip (rolling-sphere/angle method)"}
+  material: {type: str, doc: "Conductor material, e.g. copper"}

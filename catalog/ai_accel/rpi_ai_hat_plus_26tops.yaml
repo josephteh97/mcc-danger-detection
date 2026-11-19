@@ -1,0 +1,9 @@
+name: Raspberry Pi AI HAT+ 26 TOPS (Hailo-8)
+source: element14 SG SC1791 (price pending; US$110 list converted)
+verified: false
+price_sgd: 148.50
+tops: 26
+interface: pcie_gen3
+ambient_max_c: 50
+candidate: true
+trigger: [U37, U40]

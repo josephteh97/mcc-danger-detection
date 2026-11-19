@@ -1,0 +1,10 @@
+name: Assmann DN-95421 PoE/PoE+/PoE++ Ethernet surge protector
+source: hardware list v65, 19 Nov 2026 (Assmann DN-95421)
+verified: false
+price_sgd: 65.53
+bom_item: '27b'
+kind: ethernet_poe
+lines: 1
+poe_class_max: 8
+max_surge_ka: 10
+din_rail: true

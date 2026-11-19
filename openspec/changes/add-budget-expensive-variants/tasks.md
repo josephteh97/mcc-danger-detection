@@ -34,11 +34,11 @@ Every file carries `source` (hardware list version 65, 18 Nov 2026, plus the lis
 
 ## 4. One-to-one mapping and cost reconciliation
 
-- [ ] 4.1 Add `catalog.bom_mapping(site)` returning `{bom_item: product}` and raising on a duplicate `bom_item`
-- [ ] 4.2 Add the hardware list's item numbers and per-line costs as a data file (`catalog/bom/v65.yaml`) with the document version and date, `total_sgd: 3941.94` (the sum of the item rows), and `totals_table_sgd: 4184.45` marked `stale: true`
-- [ ] 4.2a Give `catalog/bom/v65.yaml` a `contingencies:` block separate from `items:`, carrying the appendix E and F entries with their prices and triggers; `total_sgd` SHALL exclude it, mirroring the document's own rule that appendix lines enter no subtotal and no grand total
-- [ ] 4.3 Add `catalog.reconcile(site, bom)` returning unmodelled items, unknown products, and the cost difference per group and in total, against `total_sgd`
-- [ ] 4.4 Record the stale table in the data file's comments: Laser gimbal +S$24.64, Power +S$217.87, S$242.51 in total; the reconciliation reports it without failing on it
+- [x] 4.1 Add `catalog.bom_mapping(site)` returning `{bom_item: product}` and raising on a duplicate `bom_item`
+- [x] 4.2 Add the hardware list's item numbers and per-line costs as a data file (`catalog/bom/v65.yaml`) with the document version and date, `total_sgd: 3941.94` (the sum of the item rows), and `totals_table_sgd: 4184.45` marked `stale: true`
+- [x] 4.2a Give `catalog/bom/v65.yaml` a `contingencies:` block separate from `items:`, carrying the appendix E and F entries with their prices and triggers; `total_sgd` SHALL exclude it, mirroring the document's own rule that appendix lines enter no subtotal and no grand total
+- [x] 4.3 Add `catalog.reconcile(site, bom)` returning unmodelled items, unknown products, and the cost difference per group and in total, against `total_sgd`
+- [x] 4.4 Record the stale table in the data file's comments: Laser gimbal +S$24.64, Power +S$217.87, S$242.51 in total; the reconciliation reports it without failing on it
 - [ ] 4.5 Verify: U27 (bijection) and U28 (cost) in `tests/smoke_budget.py`
 
 ## 5. Power, PoE and network on the budget pole
@@ -69,10 +69,10 @@ Every file carries `source` (hardware list version 65, 18 Nov 2026, plus the lis
 
 ## 6c. Candidate accelerator line
 
-- [ ] 6c.1 Add the `ai_accel` category with a minimal schema (`name`, `source`, `verified`, `price_sgd`, `tops`, `interface`, `ambient_max_c`)
-- [ ] 6c.2 Add `ai_accel/rpi_ai_hat_plus_26tops` (default pick, Hailo-8, 26 TOPS, US$110) and `ai_accel/rpi_ai_hat_plus_13tops` (Hailo-8L, 13 TOPS, US$70), both `candidate: true` with `trigger: [U37, U40]`, PCIe Gen 3, Raspberry Pi 5 only, ambient 0–50 °C; quote the SGD price from element14 SG (SC1791) before promoting either
+- [x] 6c.1 Add the `ai_accel` category with a minimal schema (`name`, `source`, `verified`, `price_sgd`, `tops`, `interface`, `ambient_max_c`)
+- [x] 6c.2 Add `ai_accel/rpi_ai_hat_plus_26tops` (default pick, Hailo-8, 26 TOPS, US$110) and `ai_accel/rpi_ai_hat_plus_13tops` (Hailo-8L, 13 TOPS, US$70), both `candidate: true` with `trigger: [U37, U40]`, PCIe Gen 3, Raspberry Pi 5 only, ambient 0–50 °C; quote the SGD price from element14 SG (SC1791) before promoting either
 - [ ] 6c.3 Exclude candidates from fitted products, from the PoE and power models and from the catalogue total; list them separately with price and trigger
-- [ ] 6c.3a Add `hardware/camvate_vesa_plate_75_100` (CAMVATE slotted X-plate, 75/100, S$25.23, Amazon.sg B0FDKRX2Y6) as an appendix F contingency with `trigger: physical` — whether the gimbal chassis lands on the item-7 bracket's top plate at four fixing points — and render its trigger state as "not evaluated here", never as PASS
+- [x] 6c.3a Add `hardware/camvate_vesa_plate_75_100` (CAMVATE slotted X-plate, 75/100, S$25.23, Amazon.sg B0FDKRX2Y6) as an appendix F contingency with `trigger: physical` — whether the gimbal chassis lands on the item-7 bracket's top plate at four fixing points — and render its trigger state as "not evaluated here", never as PASS
 - [ ] 6c.4 Add `with_candidates=[...]` to `catalog.load_site()` so a candidate fits for one run only, with `replaces:` overriding the AI box's `detector_fps` for that run; label the results a candidate run and leave the profile and the total untouched
 - [ ] 6c.5 Mark the 13 TOPS entry untested for YOLOv8-plus-tracker; both entries carry `verified: false` on `detector_fps` until measured, and the rate is never inferred from the TOPS figure
 - [ ] 6c.6 Record the thermal caveat: 0–50 °C ambient against a pole-top IP66 box in Singapore sun — fitting one brings an enclosure thermal review that is not in the HAT's price — and that the HAT takes the PCIe lane (free here, the Pi boots from microSD)
@@ -81,8 +81,8 @@ Every file carries `source` (hardware list version 65, 18 Nov 2026, plus the lis
 
 ## 6d. Lightning protection
 
-- [ ] 6d.1 Add the `lightning` category (`name`, `source`, `verified`, `price_sgd`, `rod_length_m`, `protection_angle_deg`, `material`) and the `spd` category (`name`, `source`, `verified`, `price_sgd`, `kind` = `ethernet_poe` or `dc`, `lines`, `poe_class_max`, `max_surge_ka`, `din_rail`)
-- [ ] 6d.2 Add `lightning/air_terminal_1m_copper` (item 27, S$150 est, 1 m, 45°) and `spd/poe_eth_spd_assmann_dn95421` (item 27b, S$65.53, PoE/PoE+/PoE++, 10 kV, DIN rail); add `hardware/earthing_kit_pole` (item 27a, S$300 est)
+- [x] 6d.1 Add the `lightning` category (`name`, `source`, `verified`, `price_sgd`, `rod_length_m`, `protection_angle_deg`, `material`) and the `spd` category (`name`, `source`, `verified`, `price_sgd`, `kind` = `ethernet_poe` or `dc`, `lines`, `poe_class_max`, `max_surge_ka`, `din_rail`)
+- [x] 6d.2 Add `lightning/air_terminal_1m_copper` (item 27, S$150 est, 1 m, 45°) and `spd/poe_eth_spd_assmann_dn95421` (item 27b, S$65.53, PoE/PoE+/PoE++, 10 kV, DIN rail); add `hardware/earthing_kit_pole` (item 27a, S$300 est)
 - [ ] 6d.3 Add `earthing:` to `sites/budget.yaml` — `target_ohm: 10`, `measured_ohm: null`, `pole_continuity_confirmed: false`, one shared earth reference — plus each pole-mounted item's horizontal offset from the pole axis so the cone check has geometry to work with
 - [ ] 6d.4 Protection-zone check in `tools/coverage.py`: `r ≤ (h_tip − h)·tan(angle)` over camera, gimbal, enclosure and array; name any item outside and the extra tip height needed; fail if anything sits above the tip
 - [ ] 6d.5 SPD coverage check: enumerate conductors leaving the enclosure from the fitted products, match each to a fitted SPD, and compare the SPD's `poe_class_max` against the line's duty (the 30 W horn needs PoE+; an 802.3af-only device is a mismatch)

@@ -14,7 +14,7 @@ CATALOG_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CATALOG_DIR)
 BASE_CATEGORIES = ["camera", "floodlight", "speaker", "laser", "ai_box", "battery", "solar", "mast"]
 V11_CATEGORIES = ["switch", "router", "power_conv", "monitor"]       # version 11 pole network and power
-BUDGET_CATEGORIES = ["gimbal", "controller", "modem", "enclosure", "hardware"]  # hardware-list v65 (budget pole)
+BUDGET_CATEGORIES = ["gimbal", "controller", "modem", "enclosure", "lightning", "spd", "ai_accel", "hardware"]  # hardware-list v65 (budget pole)
 CATEGORIES = BASE_CATEGORIES + V11_CATEGORIES + BUDGET_CATEGORIES
 
 _TYPES = {"str": str, "bool": bool, "number": (int, float), "list": list}
@@ -40,6 +40,7 @@ COMMON_OPTIONAL = {
     "watts_max": {"type": "number", "doc": "worst-case power drawn"},
     "poe_class": {"type": "number", "doc": "IEEE 802.3 PoE class (0-8) for products powered over PoE"},
     "bom_item": {"type": "str", "doc": "hardware-list line number this file models one-to-one, e.g. \"1\", \"11c\""},
+    "candidate": {"type": "bool", "doc": "a contingency line: never fitted, never in the total; its trigger (free field) is a list of check ids or the token \"physical\" (not evaluated here)"},
 }
 
 
@@ -193,6 +194,74 @@ def fitted(site, category):
 def fitted_products(site):
     """Every fitted product as a flat list (categories that fit several, like power_conv, expanded)."""
     return [p for c in site["fitted"] for p in fitted(site, c)]
+
+
+# --------------------------------------------------------------------------- bill of materials
+
+BOM_DIR = os.path.join(CATALOG_DIR, "bom")
+
+
+def load_bom(version):
+    """A hardware list's item rows and appendix contingencies (catalog/bom/v<version>.yaml)."""
+    path = os.path.join(BOM_DIR, f"v{version}.yaml")
+    if not os.path.exists(path):
+        raise CatalogError(f"no bill of materials catalog/bom/v{version}.yaml")
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def bom_mapping(site):
+    """{bom_item: product} for every fitted product that names a hardware-list line. Raises if two
+    fitted products claim the same line (a line modelled twice)."""
+    mapping = {}
+    for p in fitted_products(site):
+        item = p.get("bom_item")
+        if item is None:
+            continue
+        if item in mapping:
+            raise CatalogError(f"bom_item '{item}' is claimed by both {mapping[item]['id']} and {p['id']}")
+        mapping[item] = p
+    return mapping
+
+
+def reconcile(site, bom):
+    """Reconcile the fitted products against a bill of materials (catalog.load_bom). -> dict with the
+    per-line price differences, bom lines no fitted product claims, fitted products claiming a line
+    the list does not contain, the per-group and total catalogue cost against the item rows, and the
+    gap by which the document's printed totals table exceeds those rows (reported, never failed on).
+    `ok` is a clean bijection with every price matching and the total reconciled (checks U27 and U28);
+    appendix contingencies are outside the item rows and so claim no line and enter no total."""
+    mapping = bom_mapping(site)
+    items = {row["bom"]: row for row in bom["items"]}
+    lines, groups = [], {}
+    for num, row in items.items():
+        prod = mapping.get(num)
+        g = groups.setdefault(row["group"], {"listed_sgd": 0.0, "fitted_sgd": 0.0})
+        g["listed_sgd"] += row["price_sgd"]
+        if prod is not None:
+            g["fitted_sgd"] += prod["price_sgd"]
+        lines.append({"bom": num, "group": row["group"], "product": row["product"],
+                      "fitted": None if prod is None else prod["id"], "listed_sgd": row["price_sgd"],
+                      "fitted_sgd": None if prod is None else prod["price_sgd"],
+                      "diff_sgd": None if prod is None else round(prod["price_sgd"] - row["price_sgd"], 2)})
+    for g in groups.values():
+        g["listed_sgd"], g["fitted_sgd"] = round(g["listed_sgd"], 2), round(g["fitted_sgd"], 2)
+        g["diff_sgd"] = round(g["fitted_sgd"] - g["listed_sgd"], 2)
+    unmodelled = [num for num in items if num not in mapping]
+    unknown = sorted(p["id"] for item, p in mapping.items() if item not in items)
+    fitted_total = round(sum(p["price_sgd"] for p in mapping.values()), 2)
+    table = bom.get("totals_table_sgd")
+    return {
+        "lines": lines, "groups": groups, "unmodelled": unmodelled, "unknown": unknown,
+        "fitted_total_sgd": fitted_total, "listed_total_sgd": bom["total_sgd"],
+        "total_diff_sgd": round(fitted_total - bom["total_sgd"], 2),
+        "table_total_sgd": table, "table_stale": bom.get("totals_table_stale", False),
+        "table_gap_sgd": None if table is None else round(table - bom["total_sgd"], 2),
+        "stale_by": bom.get("stale_by", {}),
+        "ok": not unmodelled and not unknown
+              and all(ln["diff_sgd"] == 0 for ln in lines)
+              and round(fitted_total - bom["total_sgd"], 2) == 0,
+    }
 
 
 def validate_all():

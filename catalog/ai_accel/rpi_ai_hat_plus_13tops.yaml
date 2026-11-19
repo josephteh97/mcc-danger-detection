@@ -1,0 +1,9 @@
+name: Raspberry Pi AI HAT+ 13 TOPS (Hailo-8L)
+source: element14 SG (price pending; US$70 list converted) - untested for YOLOv8 plus the tracker
+verified: false
+price_sgd: 94.50
+tops: 13
+interface: pcie_gen3
+ambient_max_c: 50
+candidate: true
+trigger: [U37, U40]

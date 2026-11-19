@@ -1,0 +1,11 @@
+category: ai_accel
+fields:
+  name: {type: str, doc: "Product name as listed"}
+  source: {type: str, doc: "Datasheet or listing URL, or \"typical value\""}
+  verified: {type: bool, doc: "true once someone has checked the numbers against the datasheet"}
+  price_sgd: {type: number, doc: "Unit price in Singapore dollars"}
+  tops: {type: number, doc: "Rated INT8 throughput, TOPS"}
+  interface: {type: str, doc: "Host interface, e.g. pcie_gen3"}
+  ambient_max_c: {type: number, doc: "Maximum rated ambient temperature, degrees C"}
+# Candidate lines carry candidate: true and trigger: [<check ids>] from COMMON_OPTIONAL; they are
+# never fitted, never costed into the total, and their detector_fps is set per candidate run.
