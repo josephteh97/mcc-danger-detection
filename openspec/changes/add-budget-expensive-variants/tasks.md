@@ -25,12 +25,12 @@ Every file carries `source` (hardware list version 65, 18 Nov 2026, plus the lis
 ## 3. Not-fitted categories and the budget site profile
 
 - [x] 3.1 `load_site()`: accept `products.<category>: null`; drop it from `fitted`; keep the missing-category error only for a base category that is absent from `products:` entirely
-- [ ] 3.2 Confirm `fitted()` returns `[]` and every caller of `floodlight`, `router` and `monitor` handles the empty list; make the night and floodlight reports say "no floodlight fitted"
-- [ ] 3.3 Add `sites/budget.yaml`: `tier: budget`; camera **12.42 m** from the pit centre, solved from the largest-zone field-of-view method on the C385 (see 6.1); `camera.height_m: 4.0` as an adjustable default inside the 3.31–8.62 m window, marked as a starting value to replace with the measured tube height; `products:` per section 2 with `floodlight: null`, `router: null`, `monitor: null`; `power.bus_v: 48` with the version 65 conversion chain; `poe_ports:` with four ports; `gimbal`/`laser_controller` wiring (IP and ports only)
-- [ ] 3.4 Add `app/config.budget.yaml`: guide thresholds verbatim, `identify.enabled: false`, detector settings for the Pi
-- [ ] 3.5 Add `tier: expensive` to `sites/v11.yaml`; move its `laser_controller` watts and price into `controller/` and leave only the IP and ports in the profile
+- [x] 3.2 Confirm `fitted()` returns `[]` and every caller of `floodlight`, `router` and `monitor` handles the empty list; make the night and floodlight reports say "no floodlight fitted"
+- [x] 3.3 Add `sites/budget.yaml`: `tier: budget`; camera **12.42 m** from the pit centre, solved from the largest-zone field-of-view method on the C385 (see 6.1); `camera.height_m: 4.0` as an adjustable default inside the 3.31–8.62 m window, marked as a starting value to replace with the measured tube height; `products:` per section 2 with `floodlight: null`, `router: null`, `monitor: null`; `power.bus_v: 48` with the version 65 conversion chain; `poe_ports:` with four ports; `gimbal`/`laser_controller` wiring (IP and ports only)
+- [x] 3.4 Add `app/config.budget.yaml`: guide thresholds verbatim, `identify.enabled: false`, detector settings for the Pi
+- [x] 3.5 Add `tier: expensive` to `sites/v11.yaml`; move its `laser_controller` watts and price into `controller/` and leave only the IP and ports in the profile
 - [x] 3.6 Add `budget` to `PROFILES`
-- [ ] 3.7 Verify: `TWIN_PROFILE=budget python3 -c "import catalog; s=catalog.load_site(); print(s['profile'], sorted(s['fitted']))"` and the five phase-1 scripts still give 36 PASS + V11 known fail
+- [x] 3.7 Verify: `TWIN_PROFILE=budget python3 -c "import catalog; s=catalog.load_site(); print(s['profile'], sorted(s['fitted']))"` and the five phase-1 scripts still give 36 PASS + V11 known fail
 
 ## 4. One-to-one mapping and cost reconciliation
 

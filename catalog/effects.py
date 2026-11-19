@@ -73,9 +73,13 @@ def window_drops_pct(camera, preset):
 
 
 def floodlight_lux(site, floodlight=None):
-    """Lux on the worker: the lamp's lumens spread over the beam's footprint at the worker."""
-    fl = floodlight or site["fitted"]["floodlight"]
-    fd = site["floodlight"]
+    """Lux on the worker: the lamp's lumens spread over the beam's footprint at the worker.
+    None when no floodlight is fitted (the budget pole fits none)."""
+    from catalog import fitted
+    fl = floodlight or (fitted(site, "floodlight")[0] if fitted(site, "floodlight") else None)
+    fd = site.get("floodlight")
+    if fl is None or fd is None:
+        return None
     lamp = np.array([fd["xy"][0], fd["xy"][1], fd["height_m"]])
     r = float(np.linalg.norm(reference_point(site) - lamp))
     return fl["lumens"] / (math.pi * (r * math.tan(math.radians(fl["beam_deg"] / 2))) ** 2)
@@ -83,7 +87,7 @@ def floodlight_lux(site, floodlight=None):
 
 def speaker_margin_db(site, speaker, preset):
     """Sound level at the worker above the weather's background noise."""
-    xy = site["floodlight"]["xy"]
+    xy = (site.get("floodlight") or site["camera"])["xy"]   # pole position; the budget pole fits no floodlight
     ref = reference_point(site)
     r = math.dist((xy[0], xy[1], SPEAKER_HEIGHT_M), (ref[0], ref[1], EAR_HEIGHT_M))
     return speaker["spl_1m_db"] - 20 * math.log10(r) - preset.noise_db

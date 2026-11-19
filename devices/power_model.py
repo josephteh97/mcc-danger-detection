@@ -80,12 +80,12 @@ class PowerConfig(_SolarDay):
     def from_site(cls, site, **overrides):
         """Build from site.yaml's fitted products (catalog.load_site)."""
         f, p = site["fitted"], site.get("power", {})
-        flood = f["floodlight"]
+        flood = f.get("floodlight")                          # the budget pole fits no floodlight
         cfg = cls(
             base_w=p.get("other_load_w", 11) + f["camera"]["power_w"] + f["ai_box"]["power_w"],
-            flood_w=flood["power_w"],
+            flood_w=flood["power_w"] if flood else 0.0,
             flood_hours=tuple(p.get("floodlight_hours", (19, 7))),
-            inverter=flood["supply_v"] > 48,
+            inverter=bool(flood) and flood["supply_v"] > 48,
             battery_wh=f["battery"]["voltage_v"] * f["battery"]["capacity_ah"],
             panel_w=f["solar"]["panel_w"],
             daylight=tuple(p.get("daylight_hours", (7, 19))),

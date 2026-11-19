@@ -1,0 +1,111 @@
+# Site profile for hardware list version 65 (19 November 2026): the budget detection pole.
+# A TP-Link VIGI C385 and a Raspberry Pi 5 on PoE, a 2-axis ST3215 gimbal carrying a Class 2
+# green laser, an IP horn, a 48 V solar bus, and an existing site tube instead of a bought mast.
+# Ground coordinates are metres, origin at the pit centre, x east, y north, z up.
+
+tier: budget                       # hardware list version 65 is the budget build
+
+site:
+  name: MCC pit 07
+  pole_id: "07"
+  pit: [[-1.2, -0.8], [1.2, -0.8], [1.2, 0.8], [-1.2, 0.8]]   # 2.4 m by 1.6 m, as in phase 1
+  boundary: [[-14.0, -15.0], [14.0, -15.0], [14.0, 9.0], [-14.0, 9.0]]   # hoarding clears the 12.42 m standoff
+  ground_reflectance: 0.32
+
+zones:                             # the guide's thresholds, unchanged
+  alarm_buffer_m: 1.5
+  warn_buffer_m: 3.0
+
+camera:                            # C385 at the top of the existing tube
+  xy: [0.0, -12.42]                # 12.42 m south of the pit centre (largest-zone solve, task 6.1)
+  height_m: 4.0                    # starting value inside the 3.31-8.62 m window; replace with the measured tube height
+  look_at: [0.0, 0.0]              # bearing: straight at the pit
+  render: { width: 1920, height: 1080, fps: 15 }   # 16:9 stream (coverage maths uses the native 3840 x 2160)
+
+arm:                               # laser gimbal on the tube, pivot directly below the camera
+  xy: [0.0, -12.42]
+  heading_deg: 90                  # facing north, at the pit
+  pivot_h_m: 1.1
+  tilt_stops_deg: [5, 45]          # hardware stops below horizontal
+
+reference_worker:
+  xy: [0.3, -1.5]
+  chest_h_m: 1.2
+
+calibration:
+  points: [[-3.0, -3.0], [3.0, -3.0], [3.0, 3.0], [-3.0, 3.0]]
+
+products:                          # one name per category, or a list where several are fitted
+  camera: bullet_8mp_tplink_vigi_c385_4mm
+  floodlight: null                 # version 65 fits no floodlight
+  speaker: horn_30w_ip66_poe_130db
+  laser: green_520nm_1mw_ytlaser_d12
+  ai_box: raspberry_pi_5_8gb_poe
+  battery: lifepo4_48v_50ah
+  solar: panels_4x100w
+  mast: existing_steel_tube_d70_130
+  switch: unmanaged_poe_pp_8p_din_48_56v
+  router: null                     # the 4G uplink is a USB modem on the Pi, not a router
+  monitor: null                    # no battery-monitor module on the budget bus
+  gimbal: pan_tilt_st3215_2axis
+  controller: [esp32_poe_iso_ind_olimex, laser_interlock_mosfet_key_tilt]
+  modem: usb_4g_modem_lte_sg
+  enclosure: [fibox_arca_403015, pole_kit_fibox_pmk_arca_30, breather_vent_ip66_desiccant]
+  power_conv: [mppt_victron_100_20_48, ddr_60l_12_48_to_12v, ddr_15l_5_48_to_5v, batteryprotect_48v_100a]
+  hardware:
+    - pole_bracket_tplink_vmb_350
+    - arm_mount_witi_dual_40cm
+    - base_plate_steel_167x169
+    - laser_clamp_mto_m_h22a
+    - gimbal_cable_set_glands
+    - gimbal_rain_canopy
+    - sealing_kit_rtv_conformal
+    - joint_bellows_boots
+    - aruco_board_0_6m
+    - solar_tilt_brackets_28in
+    - dc_mcb_set_4
+    - signage_cctv_laser
+    - spares_kit
+    - site_cabling_set
+
+detector:                          # what a Raspberry Pi 5 sustains (task 6b)
+  native_px: [3840, 2160]
+  tiles: true                      # full-resolution tiles over the zone region (mandatory on the budget pole)
+  input_px: 640                    # tile width
+  density_px_per_m: 100            # 100 px for a 1.0 m squatting worker
+
+poe_ports:                         # four fitted PoE devices on an eight-port switch, four spare
+  - { port: 1, device: camera, poe_class: 0 }
+  - { port: 2, device: speaker, poe_class: 4 }            # IP horn, class 4 worst case
+  - { port: 3, device: ai_box, poe_class: 4 }             # Pi 5 PoE HAT
+  - { port: 4, device: laser_controller, poe_class: 0 }   # the Ethernet aim controller
+  - { port: 5 }
+  - { port: 6 }
+  - { port: 7 }
+  - { port: 8 }
+
+laser_controller:                  # wiring only; watts and price are in controller/esp32_poe_iso_ind_olimex
+  ip: 192.168.10.24
+  arm_port: 7001
+  relay_port: 7002
+
+network:                           # 4G data inputs over the USB modem (tools/network.py)
+  sim_plan_gb: 30
+  events_per_day: 50
+  clip_mb: 1.3
+  view_hours_per_day: 1.0
+  view_mbps: 1.0
+  port_mbps: 1000                  # gigabit switch ports
+
+power:
+  bus_v: 48
+  efficiency: { mppt: 0.98, dc12: 0.90, dc5: 0.90, cable: 0.98 }
+  daylight_hours: [7, 19]
+  cutoff_v: 48                     # Victron BatteryProtect opens the bus here (power_conv kind: cutoff)
+
+power_plans:
+  solar:
+    name: 4 x 100 W panels, MPPT, 48 V 50 Ah LiFePO4
+    battery: lifepo4_48v_50ah
+    solar: panels_4x100w
+    parts: []                      # the converters are fitted in products.power_conv
